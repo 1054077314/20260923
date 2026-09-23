@@ -330,6 +330,7 @@ export const PRESET_TEMPLATES: PlanTemplate[] = [
           },
           landlordType: 'direct_landlord',
           depositTerms: '押一付一',
+          coordinates: { lat: 30.2982, lng: 120.1652 },
           amenities: ['独立卫浴', '阳台晾晒', '洗衣机', '空调'],
           ratings: {
             priceValue: 9.5,
@@ -425,6 +426,7 @@ export const PRESET_TEMPLATES: PlanTemplate[] = [
           },
           landlordType: 'direct_landlord',
           depositTerms: '押一付一',
+          coordinates: { lat: 30.1835, lng: 120.2078 },
           amenities: ['民用水电', '阳台晾晒', '带电梯', '洗衣机', '冰箱', '空调', '宽带入户', '朝南采光'],
           ratings: {
             priceValue: 8.8,
@@ -545,6 +547,7 @@ export const PRESET_TEMPLATES: PlanTemplate[] = [
           },
           landlordType: 'intermediary',
           depositTerms: '押一付一',
+          coordinates: { lat: 22.5934, lng: 114.0041 },
           ratings: {
             priceValue: 7.9,
             commute: 9.5,

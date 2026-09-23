@@ -12,6 +12,7 @@ import {
 import { NeighborhoodSearchModal } from './NeighborhoodSearchModal';
 import { PropertySourcesModal } from './PropertySourcesModal';
 import { LiveListingScraperModal } from './LiveListingScraperModal';
+import { CandidatePropertiesMap } from './CandidatePropertiesMap';
 import { parseListingText } from '../utils/listingParser';
 import {
   Building2,
@@ -153,6 +154,8 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
   const [sourcesModalOpen, setSourcesModalOpen] = useState(false);
   const [scraperModalOpen, setScraperModalOpen] = useState(false);
   const [smartPasteInput, setSmartPasteInput] = useState('');
+  const [showMapView, setShowMapView] = useState(true);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
   const handleBatchImportScrapedListings = (newCandidates: CandidateProperty[]) => {
     onUpdatePlan({
@@ -586,6 +589,23 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
             </button>
 
             <button
+              onClick={() => setShowMapView(!showMapView)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono-code font-semibold rounded transition-colors shadow-2xs border ${
+                showMapView
+                  ? isDark
+                    ? 'text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900 border-emerald-600/70'
+                    : 'text-emerald-700 bg-emerald-50/90 hover:bg-emerald-100 border-emerald-300'
+                  : isDark
+                  ? 'text-neutral-400 bg-neutral-900 hover:bg-neutral-800 border-neutral-700'
+                  : 'text-neutral-600 bg-neutral-50 hover:bg-neutral-100 border-neutral-200'
+              }`}
+              title="切换城市房源地理坐标与 Google Maps 联动视图"
+            >
+              <MapPin className={`w-3.5 h-3.5 ${showMapView ? 'text-emerald-500 fill-emerald-500/20' : 'text-neutral-400'}`} />
+              <span>{showMapView ? '地图联动已开启' : '开启地图联动'}</span>
+            </button>
+
+            <button
               onClick={handleOpenAddModal}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-mono-code font-semibold rounded transition-colors shadow-xs ${
                 isDark
@@ -963,29 +983,46 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedCandidates.map((candidate, index) => {
-            const monthlyTotal = calculateCandidateMonthlyTotal(candidate);
-            const isTopRank = index === 0 && sortBy === 'score';
-            const hasGrounding = !!candidate.neighborhoodInfo?.summary;
+        <div className={showMapView ? 'flex flex-col xl:flex-row gap-4 items-start' : ''}>
+          <div className={showMapView ? 'w-full xl:w-[58%] shrink-0' : 'w-full'}>
+            <div
+              className={
+                showMapView
+                  ? 'grid grid-cols-1 md:grid-cols-2 gap-4'
+                  : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+              }
+            >
+              {sortedCandidates.map((candidate, index) => {
+                const monthlyTotal = calculateCandidateMonthlyTotal(candidate);
+                const isTopRank = index === 0 && sortBy === 'score';
+                const hasGrounding = !!candidate.neighborhoodInfo?.summary;
+                const isSelected = selectedCandidateId === candidate.id;
 
-            return (
-              <div
-                key={candidate.id}
-                className={`rounded-lg border transition-all flex flex-col justify-between ${
-                  candidate.isPinned
-                    ? isDark
-                      ? 'border-amber-500/50 bg-neutral-900/80 ring-1 ring-amber-500/20'
-                      : 'border-amber-300 bg-amber-50/20 ring-1 ring-amber-200 shadow-xs'
-                    : isTopRank
-                    ? isDark
-                      ? 'border-neutral-600 bg-neutral-900/60'
-                      : 'border-neutral-300 bg-white ring-1 ring-neutral-200 shadow-xs'
-                    : isDark
-                    ? 'border-neutral-800 bg-neutral-900/40 hover:border-neutral-700'
-                    : 'border-neutral-200/90 bg-white hover:border-neutral-300 shadow-[0_1px_3px_rgba(0,0,0,0.03)]'
-                }`}
-              >
+                return (
+                  <div
+                    key={candidate.id}
+                    id={`candidate-card-${candidate.id}`}
+                    onMouseEnter={() => setSelectedCandidateId(candidate.id)}
+                    className={`rounded-lg border transition-all flex flex-col justify-between ${
+                      isSelected
+                        ? isDark
+                          ? 'ring-2 ring-indigo-500 shadow-md border-indigo-500/80'
+                          : 'ring-2 ring-indigo-500 shadow-md border-indigo-400'
+                        : ''
+                    } ${
+                      candidate.isPinned
+                        ? isDark
+                          ? 'border-amber-500/50 bg-neutral-900/80 ring-1 ring-amber-500/20'
+                          : 'border-amber-300 bg-amber-50/20 ring-1 ring-amber-200 shadow-xs'
+                        : isTopRank
+                        ? isDark
+                          ? 'border-neutral-600 bg-neutral-900/60'
+                          : 'border-neutral-300 bg-white ring-1 ring-neutral-200 shadow-xs'
+                        : isDark
+                        ? 'border-neutral-800 bg-neutral-900/40 hover:border-neutral-700'
+                        : 'border-neutral-200/90 bg-white hover:border-neutral-300 shadow-[0_1px_3px_rgba(0,0,0,0.03)]'
+                    }`}
+                  >
                 <div className="p-4 space-y-3">
                   {/* Top Bar: Title & Score */}
                   <div className="flex items-start justify-between gap-2">
@@ -1217,6 +1254,24 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMapView(true);
+                        setSelectedCandidateId(candidate.id);
+                      }}
+                      className={`p-1 rounded transition-colors flex items-center gap-1 text-[11px] font-mono-code ${
+                        selectedCandidateId === candidate.id
+                          ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 font-bold'
+                          : isDark
+                          ? 'text-neutral-400 hover:text-neutral-200'
+                          : 'text-neutral-500 hover:text-neutral-900'
+                      }`}
+                      title="在地图中高亮定位该房源"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="hidden sm:inline">地图</span>
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1252,6 +1307,28 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
               </div>
             );
           })}
+            </div>
+          </div>
+
+          {/* Right Column: Google Maps Container */}
+          {showMapView && (
+            <div className="w-full xl:w-[42%] xl:sticky xl:top-20 shrink-0 space-y-2">
+              <CandidatePropertiesMap
+                candidates={sortedCandidates}
+                city={plan.city}
+                selectedCandidateId={selectedCandidateId}
+                onSelectCandidate={(id) => {
+                  setSelectedCandidateId(id);
+                  const el = document.getElementById(`candidate-card-${id}`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                  }
+                }}
+                isDark={isDark}
+                onCloseMap={() => setShowMapView(false)}
+              />
+            </div>
+          )}
         </div>
       )}
 

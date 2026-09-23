@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { RentalPlan, CandidateProperty } from '../types/rental';
+import { CommuteHeatmapMap } from './CommuteHeatmapMap';
+import { Flame } from 'lucide-react';
 
 interface CommuteModuleProps {
   plan: RentalPlan;
@@ -21,8 +23,19 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
   const isDark = theme === 'dark';
 
   const [workplace, setWorkplace] = useState(budget.workplace || '');
+  const [maxCommuteMinutes, setMaxCommuteMinutes] = useState(budget.maxCommuteMinutes || 35);
+  const [showHeatmap, setShowHeatmap] = useState(true);
   const [workDaysPerWeek, setWorkDaysPerWeek] = useState(5);
   const [farePerTrip, setFarePerTrip] = useState(4); // 默认单程地铁/公交 4 元
+
+  const handleUpdateMaxCommute = (mins: number) => {
+    setMaxCommuteMinutes(mins);
+    onUpdatePlan({
+      ...plan,
+      budget: { ...plan.budget, maxCommuteMinutes: mins },
+      updatedAt: new Date().toISOString(),
+    });
+  };
 
   const handleWorkplaceBlur = () => {
     if (workplace !== budget.workplace) {
@@ -75,22 +88,56 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
   return (
     <div className="w-full space-y-8 animate-fadeIn">
       {/* Title Section */}
-      <div className="pt-2 pb-1">
-        <h1
-          className={`font-editorial italic text-3xl sm:text-4xl tracking-tight font-normal ${
-            isDark ? 'text-neutral-100' : 'text-neutral-950'
+      <div className="pt-2 pb-1 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1
+            className={`font-editorial italic text-3xl sm:text-4xl tracking-tight font-normal ${
+              isDark ? 'text-neutral-100' : 'text-neutral-950'
+            }`}
+          >
+            通勤对比
+          </h1>
+          <p
+            className={`font-mono-code text-[11px] sm:text-xs tracking-[0.22em] uppercase mt-1.5 ${
+              isDark ? 'text-neutral-500' : 'text-neutral-500'
+            }`}
+          >
+            COMMUTE TIME, TRANSIT ROUTE & ANNUAL FATIGUE MATRIX
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowHeatmap(!showHeatmap)}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-mono-code font-semibold border transition-all shadow-xs ${
+            showHeatmap
+              ? isDark
+                ? 'bg-rose-950/70 text-rose-300 border-rose-800'
+                : 'bg-rose-50 text-rose-700 border-rose-300 shadow-2xs'
+              : isDark
+              ? 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+              : 'bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50'
           }`}
+          title="切换通勤等时圈热力图显示"
         >
-          通勤对比
-        </h1>
-        <p
-          className={`font-mono-code text-[11px] sm:text-xs tracking-[0.22em] uppercase mt-1.5 ${
-            isDark ? 'text-neutral-500' : 'text-neutral-500'
-          }`}
-        >
-          COMMUTE TIME, TRANSIT ROUTE & ANNUAL FATIGUE MATRIX
-        </p>
+          <Flame className={`w-3.5 h-3.5 ${showHeatmap ? 'text-rose-500' : 'text-neutral-400'}`} />
+          <span>{showHeatmap ? '通勤热力图 (已展开)' : '展开通勤热力图'}</span>
+        </button>
       </div>
+
+      {/* Commute Heatmap Map Overlay Section */}
+      {showHeatmap && (
+        <div className="w-full">
+          <CommuteHeatmapMap
+            candidates={candidates}
+            city={plan.city}
+            workplace={workplace}
+            maxCommuteMinutes={maxCommuteMinutes}
+            onUpdateMaxCommuteMinutes={handleUpdateMaxCommute}
+            isDark={isDark}
+          />
+        </div>
+      )}
 
       {/* 3-Column Core Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -113,6 +160,33 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                 placeholder="如：科技园 / 软件谷 / 市中心"
                 className={`w-full rounded px-3 py-2.5 text-sm font-mono-code outline-none transition-colors border ${inputBg}`}
               />
+            </div>
+
+            {/* 单程通勤时间上限 */}
+            <div className="space-y-1.5 p-3 rounded-lg border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/20">
+              <div className="flex items-center justify-between">
+                <label className={`block font-semibold ${isDark ? 'text-amber-300' : 'text-amber-900'}`}>
+                  单程通勤上限
+                </label>
+                <span className="font-mono-code font-bold text-sm text-amber-600 dark:text-amber-400">
+                  {maxCommuteMinutes} 分钟
+                </span>
+              </div>
+              <input
+                type="range"
+                min="15"
+                max="70"
+                step="5"
+                value={maxCommuteMinutes}
+                onChange={(e) => handleUpdateMaxCommute(Number(e.target.value))}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-neutral-400 font-mono-code">
+                <span>15m 步行圈</span>
+                <span>35m 舒适</span>
+                <span>45m 极限</span>
+                <span>60m+ 超时</span>
+              </div>
             </div>
 
             {/* 每周工作天数 */}
@@ -238,6 +312,28 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                               }`}
                             >
                               FASTEST 最短通勤
+                            </span>
+                          )}
+                          {!isFastest && item.oneWayMin > maxCommuteMinutes && (
+                            <span
+                              className={`font-mono-code text-[10px] px-1.5 py-0.5 rounded border ${
+                                isDark
+                                  ? 'text-rose-400 bg-rose-950/60 border-rose-800/50'
+                                  : 'text-rose-700 bg-rose-100 border-rose-300 font-semibold'
+                              }`}
+                            >
+                              超时 +{item.oneWayMin - maxCommuteMinutes}m
+                            </span>
+                          )}
+                          {!isFastest && item.oneWayMin <= maxCommuteMinutes && (
+                            <span
+                              className={`font-mono-code text-[10px] px-1.5 py-0.5 rounded border ${
+                                isDark
+                                  ? 'text-emerald-400/90 bg-emerald-950/40 border-emerald-800/40'
+                                  : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                              }`}
+                            >
+                              符合时限
                             </span>
                           )}
                         </div>

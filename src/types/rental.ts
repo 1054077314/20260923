@@ -83,6 +83,10 @@ export interface CandidateProperty {
   checklistResults: Record<string, boolean>; // checklistId -> passed/checked
   weightedScore?: number; // 计算得分
   isPinned?: boolean; // 高亮优选置顶
+  coordinates?: {
+    lat: number;
+    lng: number;
+  };
   amenities?: string[]; // 配套设施 如 ['独立卫浴', '燃气厨房', '阳台晾晒', '洗衣机', '冰箱', '空调', '智能门锁', '集中供暖', '带电梯', '停车位']
   neighborhoodInfo?: {
     lastQueried?: string;
