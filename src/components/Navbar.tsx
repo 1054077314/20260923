@@ -7,7 +7,10 @@ import {
   Check,
   Sun,
   Moon,
+  MapPin,
+  Navigation,
 } from 'lucide-react';
+import { CITY_COORDINATES } from '../utils/mapUtils';
 
 export type NavTabKey = 'budget' | 'commute' | 'matrix' | 'timeline';
 
@@ -29,6 +32,7 @@ interface NavbarProps {
   onDuplicatePlan: (id: string) => void;
   onDeletePlan: (id: string) => void;
   onUpdateStatus: (status: PlanStatus) => void;
+  onUpdateCity?: (city: string) => void;
 }
 
 const TABS: { id: NavTabKey; num: string; label: string }[] = [
@@ -56,9 +60,51 @@ export const Navbar: React.FC<NavbarProps> = ({
   onDuplicatePlan,
   onDeletePlan,
   onUpdateStatus,
+  onUpdateCity,
 }) => {
   const [planDropdownOpen, setPlanDropdownOpen] = useState(false);
+  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
+  const [customCityInput, setCustomCityInput] = useState('');
+  const [locating, setLocating] = useState(false);
   const isDark = theme === 'dark';
+
+  const handleCitySelect = (cityName: string) => {
+    if (onUpdateCity) {
+      onUpdateCity(cityName);
+    }
+    setCityDropdownOpen(false);
+    setCustomCityInput('');
+  };
+
+  const handleLocateCurrentPosition = () => {
+    if (!navigator.geolocation) {
+      handleCitySelect('乌鲁木齐');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        const { latitude, longitude } = pos.coords;
+        let closest = '乌鲁木齐';
+        let minDist = Infinity;
+        for (const [cName, coords] of Object.entries(CITY_COORDINATES)) {
+          if (cName.endsWith('区') || cName.endsWith('商圈') || cName.endsWith('站')) continue;
+          const d = Math.hypot(coords.lat - latitude, coords.lng - longitude);
+          if (d < minDist) {
+            minDist = d;
+            closest = cName;
+          }
+        }
+        handleCitySelect(closest);
+      },
+      () => {
+        setLocating(false);
+        handleCitySelect('乌鲁木齐');
+      },
+      { timeout: 6000 }
+    );
+  };
 
   return (
     <header
@@ -195,6 +241,140 @@ export const Navbar: React.FC<NavbarProps> = ({
               {focusMode ? 'ON' : 'OFF'}
             </span>
           </button>
+
+          {/* Current City Selector & Geolocation Pill */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setCityDropdownOpen(!cityDropdownOpen)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono-code transition-all border cursor-pointer ${
+                isDark
+                  ? 'bg-rose-950/40 border-rose-900/60 hover:border-rose-700 text-rose-300'
+                  : 'bg-rose-50/80 border-rose-200 hover:border-rose-300 text-rose-700 shadow-2xs'
+              }`}
+              title="切换目标城市 / 定位"
+            >
+              <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span className="font-semibold max-w-[70px] sm:max-w-[95px] truncate">
+                {activePlan.city || '乌鲁木齐'}
+              </span>
+              <ChevronDown
+                className={`w-3 h-3 ${isDark ? 'text-rose-400' : 'text-rose-500'}`}
+              />
+            </button>
+
+            {cityDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setCityDropdownOpen(false)}
+                />
+                <div
+                  className={`absolute right-0 top-full mt-1.5 w-72 rounded-xl shadow-2xl p-3 z-50 text-xs border ${
+                    isDark
+                      ? 'bg-neutral-900 border-neutral-800 text-neutral-300'
+                      : 'bg-white border-neutral-200 text-neutral-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-200 dark:border-neutral-800">
+                    <div className="flex items-center gap-1.5 font-bold font-mono-code">
+                      <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                      <span>目标城市定位</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-400 font-mono-code">
+                      当前: {activePlan.city || '乌鲁木齐'}
+                    </span>
+                  </div>
+
+                  {/* Input box */}
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <input
+                      type="text"
+                      value={customCityInput}
+                      onChange={(e) => setCustomCityInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && customCityInput.trim()) {
+                          handleCitySelect(customCityInput.trim());
+                        }
+                      }}
+                      placeholder="输入城市名 (如: 乌鲁木齐)"
+                      className={`flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono-code focus:outline-none focus:ring-1 ${
+                        isDark
+                          ? 'bg-neutral-800 border-neutral-700 text-neutral-100 focus:border-rose-500'
+                          : 'bg-neutral-50 border-neutral-200 text-neutral-900 focus:border-rose-500'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customCityInput.trim()) {
+                          handleCitySelect(customCityInput.trim());
+                        }
+                      }}
+                      className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-medium cursor-pointer"
+                    >
+                      切换
+                    </button>
+                  </div>
+
+                  {/* Geolocation Button */}
+                  <button
+                    type="button"
+                    onClick={handleLocateCurrentPosition}
+                    disabled={locating}
+                    className={`w-full mb-3 px-2.5 py-1.5 rounded-lg flex items-center justify-center gap-2 border transition-colors cursor-pointer ${
+                      isDark
+                        ? 'bg-neutral-800 hover:bg-neutral-700 border-neutral-700 text-neutral-200'
+                        : 'bg-neutral-50 hover:bg-neutral-100 border-neutral-200 text-neutral-700'
+                    }`}
+                  >
+                    <Navigation className={`w-3.5 h-3.5 text-indigo-500 ${locating ? 'animate-spin' : ''}`} />
+                    <span>{locating ? '正在获取 GPS 定位...' : '自动定位当前城市 (GPS)'}</span>
+                  </button>
+
+                  {/* Fast city tags */}
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] text-neutral-400 font-mono-code uppercase">快速直选城市</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { name: '乌鲁木齐', tag: '⭐ 当前' },
+                        { name: '北京' },
+                        { name: '上海' },
+                        { name: '广州' },
+                        { name: '深圳' },
+                        { name: '杭州' },
+                        { name: '成都' },
+                        { name: '武汉' },
+                        { name: '西安' },
+                        { name: '南京' },
+                      ].map((c) => {
+                        const isActive = (activePlan.city || '乌鲁木齐') === c.name;
+                        return (
+                          <button
+                            key={c.name}
+                            type="button"
+                            onClick={() => handleCitySelect(c.name)}
+                            className={`px-2 py-1 rounded text-[11px] font-mono-code border transition-colors cursor-pointer ${
+                              isActive
+                                ? isDark
+                                  ? 'bg-rose-950/80 text-rose-300 border-rose-800 font-bold'
+                                  : 'bg-rose-100 text-rose-800 border-rose-300 font-bold'
+                                : isDark
+                                ? 'bg-neutral-800/80 hover:bg-neutral-800 border-neutral-700 text-neutral-300'
+                                : 'bg-white hover:bg-neutral-50 border-neutral-200 text-neutral-700'
+                            }`}
+                          >
+                            {c.name}
+                            {c.tag && <span className="ml-1 text-[9px] text-amber-500">{c.tag}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Plan Selector Dropdown */}
           <div className="relative">

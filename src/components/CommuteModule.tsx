@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RentalPlan, CandidateProperty } from '../types/rental';
 import { CommuteHeatmapMap } from './CommuteHeatmapMap';
-import { Flame } from 'lucide-react';
+import { Flame, MapPin } from 'lucide-react';
 
 interface CommuteModuleProps {
   plan: RentalPlan;
@@ -22,11 +22,25 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
   const candidates = plan.candidates || [];
   const isDark = theme === 'dark';
 
+  const [city, setCity] = useState(plan.city || '乌鲁木齐');
   const [workplace, setWorkplace] = useState(budget.workplace || '');
   const [maxCommuteMinutes, setMaxCommuteMinutes] = useState(budget.maxCommuteMinutes || 35);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [workDaysPerWeek, setWorkDaysPerWeek] = useState(5);
   const [farePerTrip, setFarePerTrip] = useState(4); // 默认单程地铁/公交 4 元
+
+  useEffect(() => {
+    setCity(plan.city || '乌鲁木齐');
+  }, [plan.city]);
+
+  const handleCityChange = (newCity: string) => {
+    setCity(newCity);
+    onUpdatePlan({
+      ...plan,
+      city: newCity,
+      updatedAt: new Date().toISOString(),
+    });
+  };
 
   const handleUpdateMaxCommute = (mins: number) => {
     setMaxCommuteMinutes(mins);
@@ -130,7 +144,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
         <div className="w-full">
           <CommuteHeatmapMap
             candidates={candidates}
-            city={plan.city}
+            city={city}
             workplace={workplace}
             maxCommuteMinutes={maxCommuteMinutes}
             onUpdateMaxCommuteMinutes={handleUpdateMaxCommute}
@@ -149,6 +163,66 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
           </div>
 
           <div className="space-y-5 text-xs">
+            {/* 目标城市与定位 */}
+            <div className="space-y-1.5 p-3 rounded-lg border border-rose-200/60 dark:border-rose-950/60 bg-rose-50/30 dark:bg-rose-950/20">
+              <div className="flex items-center justify-between">
+                <label className={`block font-semibold flex items-center gap-1.5 ${isDark ? 'text-rose-300' : 'text-rose-900'}`}>
+                  <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                  <span>目标城市 (地图锚定)</span>
+                </label>
+                <span className="font-mono-code text-[11px] text-rose-600 dark:text-rose-400 font-bold">
+                  {city || '乌鲁木齐'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  onBlur={() => handleCityChange(city)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCityChange(city);
+                  }}
+                  placeholder="如：乌鲁木齐 / 北京 / 杭州"
+                  className={`flex-1 rounded px-2.5 py-1.5 text-xs font-mono-code outline-none border transition-colors ${inputBg}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCityChange('乌鲁木齐')}
+                  title="立即重置为乌鲁木齐"
+                  className={`px-2 py-1.5 rounded text-[11px] font-mono-code font-bold border transition-colors cursor-pointer ${
+                    city === '乌鲁木齐'
+                      ? 'bg-rose-600 text-white border-rose-600'
+                      : isDark
+                      ? 'border-neutral-700 hover:border-neutral-600 text-neutral-300'
+                      : 'border-neutral-200 hover:border-neutral-300 text-neutral-700'
+                  }`}
+                >
+                  乌鲁木齐
+                </button>
+              </div>
+
+              {/* 常用城市直选标签 */}
+              <div className="flex flex-wrap gap-1 pt-1">
+                {['乌鲁木齐', '北京', '上海', '广州', '深圳', '杭州', '成都', '西安'].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => handleCityChange(c)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono-code border transition-colors cursor-pointer ${
+                      city === c
+                        ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                        : isDark
+                        ? 'border-neutral-800 hover:border-neutral-700 text-neutral-400'
+                        : 'border-neutral-200 hover:border-neutral-300 text-neutral-600'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* 工作地点 */}
             <div className="space-y-1.5">
               <label className={`block font-medium ${labelColor}`}>工作地 / 目标商圈</label>
@@ -157,9 +231,42 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                 value={workplace}
                 onChange={(e) => setWorkplace(e.target.value)}
                 onBlur={handleWorkplaceBlur}
-                placeholder="如：科技园 / 软件谷 / 市中心"
+                placeholder="如：友好商圈 / 铁路局 / 高新区"
                 className={`w-full rounded px-3 py-2.5 text-sm font-mono-code outline-none transition-colors border ${inputBg}`}
               />
+              {city.includes('乌鲁木齐') && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {[
+                    { label: '友好商圈', wp: '沙依巴克区 友好商圈' },
+                    { label: '铁路局/北京路', wp: '新市区 铁路局商圈' },
+                    { label: '高新区软件园', wp: '高新区 软件园' },
+                    { label: '经开万达', wp: '经开区 万达广场' },
+                    { label: '国际大巴扎', wp: '天山区 国际大巴扎' },
+                  ].map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => {
+                        setWorkplace(chip.wp);
+                        onUpdatePlan({
+                          ...plan,
+                          budget: { ...plan.budget, workplace: chip.wp },
+                          updatedAt: new Date().toISOString(),
+                        });
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono-code border transition-colors cursor-pointer ${
+                        workplace.includes(chip.label)
+                          ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                          : isDark
+                          ? 'border-neutral-800 hover:border-neutral-700 text-neutral-400'
+                          : 'border-neutral-200 hover:border-neutral-300 text-neutral-600'
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 单程通勤时间上限 */}

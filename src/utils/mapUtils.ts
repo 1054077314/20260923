@@ -7,6 +7,26 @@ export interface LatLng {
 
 // Major cities coordinates dictionary
 export const CITY_COORDINATES: Record<string, LatLng> = {
+  // 新疆 · 乌鲁木齐及主要区域
+  乌鲁木齐: { lat: 43.8256, lng: 87.6168 },
+  乌鲁木齐市: { lat: 43.8256, lng: 87.6168 },
+  新疆: { lat: 43.8256, lng: 87.6168 },
+  天山区: { lat: 43.7936, lng: 87.6316 },
+  沙依巴克区: { lat: 43.8016, lng: 87.5979 },
+  新市区: { lat: 43.8569, lng: 87.5752 },
+  高新区: { lat: 43.8569, lng: 87.5752 },
+  水磨沟区: { lat: 43.8344, lng: 87.6433 },
+  头屯河区: { lat: 43.8795, lng: 87.4278 },
+  经开区: { lat: 43.8795, lng: 87.4278 },
+  米东区: { lat: 43.9535, lng: 87.6853 },
+  达坂城区: { lat: 43.3571, lng: 88.3094 },
+  铁路局: { lat: 43.8688, lng: 87.5768 },
+  友好商圈: { lat: 43.8182, lng: 87.5925 },
+  大小西门: { lat: 43.7942, lng: 87.6152 },
+  国际大巴扎: { lat: 43.7788, lng: 87.6366 },
+  会展中心: { lat: 43.8645, lng: 87.6521 },
+
+  // 主要一二线与省会城市
   杭州: { lat: 30.2741, lng: 120.1551 },
   杭州市: { lat: 30.2741, lng: 120.1551 },
   上海: { lat: 31.2304, lng: 121.4737 },
@@ -57,13 +77,43 @@ export const CITY_COORDINATES: Record<string, LatLng> = {
   大连市: { lat: 38.914, lng: 121.6147 },
   济南: { lat: 36.6512, lng: 117.12 },
   济南市: { lat: 36.6512, lng: 117.12 },
+  兰州: { lat: 36.0611, lng: 103.8343 },
+  兰州市: { lat: 36.0611, lng: 103.8343 },
+  西宁: { lat: 36.6171, lng: 101.7782 },
+  西宁市: { lat: 36.6171, lng: 101.7782 },
+  银川: { lat: 38.4872, lng: 106.2309 },
+  银川市: { lat: 38.4872, lng: 106.2309 },
+  呼和浩特: { lat: 40.8415, lng: 111.7519 },
+  呼和浩特市: { lat: 40.8415, lng: 111.7519 },
+  哈尔滨: { lat: 45.8038, lng: 126.5349 },
+  哈尔滨市: { lat: 45.8038, lng: 126.5349 },
+  长春: { lat: 43.8171, lng: 125.3235 },
+  长春市: { lat: 43.8171, lng: 125.3235 },
+  石家庄: { lat: 38.0428, lng: 114.5149 },
+  石家庄市: { lat: 38.0428, lng: 114.5149 },
+  太原: { lat: 37.8706, lng: 112.5489 },
+  太原市: { lat: 37.8706, lng: 112.5489 },
+  南昌: { lat: 28.682, lng: 115.8579 },
+  南昌市: { lat: 28.682, lng: 115.8579 },
+  福州: { lat: 26.0745, lng: 119.2965 },
+  福州市: { lat: 26.0745, lng: 119.2965 },
+  贵阳: { lat: 26.647, lng: 106.6302 },
+  贵阳市: { lat: 26.647, lng: 106.6302 },
+  南宁: { lat: 22.817, lng: 108.3665 },
+  南宁市: { lat: 22.817, lng: 108.3665 },
+  海口: { lat: 20.044, lng: 110.1999 },
+  海口市: { lat: 20.044, lng: 110.1999 },
+  三亚: { lat: 18.2528, lng: 109.5119 },
+  三亚市: { lat: 18.2528, lng: 109.5119 },
+  拉萨: { lat: 29.6469, lng: 91.1172 },
+  拉萨市: { lat: 29.6469, lng: 91.1172 },
 };
 
 /**
  * Get coordinates for a given city string with fallback
  */
 export function getCityCenter(cityStr: string): LatLng {
-  if (!cityStr) return CITY_COORDINATES['杭州'];
+  if (!cityStr) return CITY_COORDINATES['乌鲁木齐'];
   const cleanCity = cityStr.trim();
   if (CITY_COORDINATES[cleanCity]) {
     return CITY_COORDINATES[cleanCity];
@@ -79,7 +129,11 @@ export function getCityCenter(cityStr: string): LatLng {
       return coords;
     }
   }
-  return CITY_COORDINATES['杭州'];
+  // If cityStr mentions 乌鲁木齐 or 新疆
+  if (cleanCity.includes('乌鲁木齐') || cleanCity.includes('新疆') || cleanCity.includes('乌市')) {
+    return CITY_COORDINATES['乌鲁木齐'];
+  }
+  return CITY_COORDINATES['乌鲁木齐'];
 }
 
 /**
@@ -106,6 +160,27 @@ export function getCandidateApproxCoordinates(
 }
 
 /**
+ * Safely resolve candidate coordinates relative to the target city.
+ * If candidate has coordinates from a different city (>80km away),
+ * re-anchors to current city center so pins don't fly thousands of kilometers away.
+ */
+export function getCandidateCoordsForCity(
+  candidate: { id: string; coordinates?: LatLng },
+  cityCenter: LatLng,
+  index = 0
+): LatLng {
+  if (candidate.coordinates && candidate.coordinates.lat && candidate.coordinates.lng) {
+    const latDiff = Math.abs(candidate.coordinates.lat - cityCenter.lat);
+    const lngDiff = Math.abs(candidate.coordinates.lng - cityCenter.lng);
+    // If within ~0.8 deg lat (~90km), preserve explicit coordinates
+    if (latDiff < 0.8 && lngDiff < 1.0) {
+      return candidate.coordinates;
+    }
+  }
+  return getCandidateApproxCoordinates(candidate.id, cityCenter, index);
+}
+
+/**
  * Deterministically resolve workplace coordinate anchor relative to city
  */
 export function getWorkplaceCoordinates(workplace: string, cityCenter: LatLng): LatLng {
@@ -116,9 +191,16 @@ export function getWorkplaceCoordinates(workplace: string, cityCenter: LatLng): 
       lng: Number((cityCenter.lng + 0.008).toFixed(6)),
     };
   }
+  // Check if workplace directly contains a known district, landmark or area
+  const cleanWp = workplace.trim();
+  for (const [key, coords] of Object.entries(CITY_COORDINATES)) {
+    if (cleanWp.includes(key)) {
+      return coords;
+    }
+  }
   let hash = 0;
-  for (let i = 0; i < workplace.length; i++) {
-    hash = (hash << 5) - hash + workplace.charCodeAt(i);
+  for (let i = 0; i < cleanWp.length; i++) {
+    hash = (hash << 5) - hash + cleanWp.charCodeAt(i);
     hash |= 0;
   }
   const angle = (Math.abs(hash) % 360) * (Math.PI / 180);
@@ -155,7 +237,9 @@ let cachedApiKey: string | null = null;
  */
 export async function getGoogleMapsApiKey(): Promise<string> {
   if (cachedApiKey) return cachedApiKey;
-  const envKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY;
+  const envKey =
+    (import.meta as any).env?.VITE_GEMINI_PUBLIC_MAPS_API_KEY ||
+    (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY;
   if (envKey && envKey !== 'MY_GOOGLE_MAPS_API_KEY') {
     cachedApiKey = envKey;
     return envKey;
@@ -174,6 +258,30 @@ export async function getGoogleMapsApiKey(): Promise<string> {
 }
 
 let loaderPromise: Promise<void> | null = null;
+let authFailureListeners: Array<() => void> = [];
+
+/**
+ * Listen for Google Maps gm_authFailure to gracefully switch to local Radar Map
+ */
+export function onGoogleMapsAuthFailure(callback: () => void): () => void {
+  authFailureListeners.push(callback);
+  return () => {
+    authFailureListeners = authFailureListeners.filter((cb) => cb !== callback);
+  };
+}
+
+if (typeof window !== 'undefined') {
+  const originalAuthFailure = (window as any).gm_authFailure;
+  (window as any).gm_authFailure = () => {
+    console.warn('Google Maps 授权失败 (gm_authFailure)，启用本地高精度雷达等时圈');
+    if (typeof originalAuthFailure === 'function') originalAuthFailure();
+    authFailureListeners.forEach((cb) => {
+      try {
+        cb();
+      } catch {}
+    });
+  };
+}
 
 /**
  * Dynamically load Google Maps JavaScript API with clean callback, timeout and graceful error handling
@@ -210,7 +318,7 @@ export function loadGoogleMapsSdk(apiKey: string, timeoutMs = 6000): Promise<voi
     const script = document.createElement('script');
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
       apiKey
-    )}&libraries=places,marker&callback=${callbackName}&language=zh-CN`;
+    )}&libraries=places&callback=${callbackName}&language=zh-CN`;
     script.async = true;
     script.defer = true;
     script.onerror = () => {

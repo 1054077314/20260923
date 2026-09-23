@@ -73,15 +73,44 @@ export default function App() {
 
   // Initialize data on mount
   useEffect(() => {
-    const loadedPlans = getStoredPlans();
-    setPlans(loadedPlans);
-    const initialActiveId = getActivePlanId();
-    if (loadedPlans.some((p) => p.id === initialActiveId)) {
-      setActiveId(initialActiveId);
-    } else if (loadedPlans.length > 0) {
-      setActiveId(loadedPlans[0].id);
+    let loadedPlans = getStoredPlans();
+    let initialActiveId = getActivePlanId();
+    if (!loadedPlans.some((p) => p.id === initialActiveId) && loadedPlans.length > 0) {
+      initialActiveId = loadedPlans[0].id;
       setActivePlanId(loadedPlans[0].id);
     }
+
+    // Anchor current active plan to 乌鲁木齐 as requested by user
+    let modified = false;
+    loadedPlans = loadedPlans.map((p) => {
+      if (p.id === initialActiveId && p.city !== '乌鲁木齐') {
+        modified = true;
+        const currentWp = p.budget.workplace || '';
+        return {
+          ...p,
+          city: '乌鲁木齐',
+          budget: {
+            ...p.budget,
+            workplace:
+              !currentWp || currentWp.includes('单位') || currentWp.includes('科技城') || currentWp.includes('陆家嘴')
+                ? '沙依巴克区友好商圈 / 新市区高新区'
+                : currentWp,
+            preferredDistricts:
+              p.budget.preferredDistricts && p.budget.preferredDistricts.length > 0 && !p.budget.preferredDistricts[0].includes('城中村')
+                ? p.budget.preferredDistricts
+                : ['沙依巴克区', '新市区/高新区', '水磨沟区', '天山区'],
+          },
+        };
+      }
+      return p;
+    });
+
+    if (modified) {
+      saveAllPlans(loadedPlans);
+    }
+
+    setPlans(loadedPlans);
+    setActiveId(initialActiveId);
   }, []);
 
   const activePlan = plans.find((p) => p.id === activePlanId) || plans[0];
@@ -90,6 +119,24 @@ export default function App() {
     const updatedPlans = plans.map((p) => (p.id === updatedPlan.id ? updatedPlan : p));
     setPlans(updatedPlans);
     saveAllPlans(updatedPlans);
+  };
+
+  const handleUpdateCity = (newCity: string) => {
+    if (!activePlan) return;
+    const isUrumqi = newCity.includes('乌鲁木齐') || newCity.includes('新疆');
+    const updatedPlan: RentalPlan = {
+      ...activePlan,
+      city: newCity,
+      budget: {
+        ...activePlan.budget,
+        workplace:
+          isUrumqi && (!activePlan.budget.workplace || activePlan.budget.workplace.includes('科技城') || activePlan.budget.workplace.includes('单位'))
+            ? '沙依巴克区友好商圈 / 新市区高新区'
+            : activePlan.budget.workplace,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    handleUpdateActivePlan(updatedPlan);
   };
 
   const handleSelectPlan = (id: string) => {
@@ -217,6 +264,7 @@ export default function App() {
         onDuplicatePlan={handleDuplicatePlan}
         onDeletePlan={handleDeletePlan}
         onUpdateStatus={handleUpdateStatus}
+        onUpdateCity={handleUpdateCity}
       />
 
       {/* Main View Area */}

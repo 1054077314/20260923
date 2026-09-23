@@ -3,10 +3,12 @@ import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
   getCandidateApproxCoordinates,
+  getCandidateCoordsForCity,
   getWorkplaceCoordinates,
   calculateCommuteRadiusMeters,
   loadGoogleMapsSdk,
   getGoogleMapsApiKey,
+  onGoogleMapsAuthFailure,
   TransitMode,
   LatLng,
 } from '../utils/mapUtils';
@@ -65,6 +67,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
 
   const [mapEngine, setMapEngine] = useState<'google' | 'radar'>('google');
   const [loading, setLoading] = useState(true);
+  const [authErrorNotice, setAuthErrorNotice] = useState(false);
   const [transitMode, setTransitMode] = useState<TransitMode>('subway');
   const [showHeatOverlay, setShowHeatOverlay] = useState(true);
   const [onlyShowWithinLimit, setOnlyShowWithinLimit] = useState(false);
@@ -81,6 +84,44 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     () => getWorkplaceCoordinates(workplace, cityCenter),
     [workplace, cityCenter]
   );
+
+  // Listen to Google Maps auth failure globally
+  useEffect(() => {
+    const unsub = onGoogleMapsAuthFailure(() => {
+      console.warn('Google Maps 授权失败，已自动无缝切换到空间动态雷达等时圈');
+      setMapEngine('radar');
+      setLoading(false);
+      setAuthErrorNotice(true);
+    });
+    return unsub;
+  }, []);
+
+  // Detect Google Maps grey error overlay in the DOM and auto-recover
+  useEffect(() => {
+    if (mapEngine !== 'google' || !mapContainerRef.current) return;
+    const observer = new MutationObserver(() => {
+      const container = mapContainerRef.current;
+      if (
+        container &&
+        (container.querySelector('.gm-err-container') ||
+          container.textContent?.includes('此页面未能正确加载') ||
+          container.textContent?.includes('糟糕！出了点问题'))
+      ) {
+        console.warn('检测到 Google 地图界面加载异常，已自动无缝切换到高精度雷达等时圈');
+        setMapEngine('radar');
+        setLoading(false);
+        setAuthErrorNotice(true);
+      }
+    });
+
+    observer.observe(mapContainerRef.current, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => observer.disconnect();
+  }, [mapEngine]);
 
   // Comfortable commute threshold (e.g. 25 min or 65% of max limit)
   const comfortableMinutes = useMemo(() => {
@@ -100,10 +141,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   // Compute resolved candidate coordinates
   const candidatesWithCoords = useMemo(() => {
     return candidates.map((cand, idx) => {
-      const coords =
-        cand.coordinates && cand.coordinates.lat && cand.coordinates.lng
-          ? cand.coordinates
-          : getCandidateApproxCoordinates(cand.id, cityCenter, idx);
+      const coords = getCandidateCoordsForCity(cand, cityCenter, idx);
       const commuteMin = cand.commuteMinutes || 30;
       const isComfortable = commuteMin <= comfortableMinutes;
       const isWithinLimit = commuteMin <= maxCommuteMinutes;
@@ -170,7 +208,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
             mapTypeControl: false,
             streetViewControl: false,
             fullscreenControl: false,
-            internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
+            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
           });
           mapInstanceRef.current = map;
         } else {
@@ -184,6 +222,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
         if (!isCancelled) {
           setMapEngine('radar');
           setLoading(false);
+          setAuthErrorNotice(true);
         }
       }
     }
@@ -463,18 +502,10 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
           <div>
             <div className="text-xs font-bold flex items-center gap-2 font-mono-code">
               <span>通勤热力覆盖图 // COMMUTE ISOCHRONE HEATMAP</span>
-              <span
-                className={`text-[9px] px-1.5 py-0.2 rounded font-sans uppercase font-medium ${
-                  mapEngine === 'google'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
-                    : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300'
-                }`}
-              >
-                {mapEngine === 'google' ? 'Google Maps 空间热力' : '动态雷达等时线'}
-              </span>
             </div>
-            <div className="text-[11px] opacity-70 flex items-center gap-1.5 mt-0.5">
-              <span className="font-semibold text-indigo-500">🏢 {workplace || `${city}核心区`}</span>
+            <div className="text-[11px] opacity-80 flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="font-semibold text-rose-500 font-mono-code">📍 {city || '乌鲁木齐'}</span>
+              <span>· <strong className="text-indigo-500">🏢 {workplace || `${city || '乌鲁木齐'}核心区`}</strong></span>
               <span>· 达标房源: <strong>{stats.withinCount}/{stats.total}</strong> 套</span>
               <span>· 候选均时: <strong>{stats.avgMinutes}</strong> 分钟</span>
             </div>
@@ -482,7 +513,37 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Engine Switcher */}
+          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 p-0.5 bg-neutral-100/80 dark:bg-neutral-800/80 text-[10px] font-mono-code mr-1">
+            <button
+              type="button"
+              onClick={() => setMapEngine('radar')}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'radar'
+                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="切换为本地高精度动态雷达等时圈（离线高可用）"
+            >
+              <Compass className="w-3 h-3" />
+              <span>动态雷达等时圈</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapEngine('google')}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'google'
+                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="切换为 Google Maps 实景底图"
+            >
+              <Layers className="w-3 h-3" />
+              <span>Google 地图</span>
+            </button>
+          </div>
+
           {mapEngine === 'radar' && (
             <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
               <button
@@ -644,6 +705,23 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
           </label>
         </div>
       </div>
+
+      {/* Network / Auth Notice Banner */}
+      {authErrorNotice && (
+        <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span>Google 地图网络连接受限，已无缝切换至「高精度动态雷达等时圈」（等时圈与测算均正常工作）</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAuthErrorNotice(false)}
+            className="hover:opacity-75 font-mono-code text-[11px] underline ml-2 cursor-pointer"
+          >
+            忽略
+          </button>
+        </div>
+      )}
 
       {/* Main Map Viewport */}
       <div

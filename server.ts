@@ -28,6 +28,7 @@ const ai = new GoogleGenAI({
 // Provide Maps API Key to frontend
 app.get('/api/maps-key', (_req: Request, res: Response) => {
   const apiKey =
+    process.env.VITE_GEMINI_PUBLIC_MAPS_API_KEY ||
     process.env.VITE_GOOGLE_MAPS_API_KEY ||
     process.env.GOOGLE_MAPS_API_KEY ||
     'AIzaSyBIoomGq3PNyW2WrvhwyKagxUkU-NxuTRE';

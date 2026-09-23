@@ -3,8 +3,10 @@ import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
   getCandidateApproxCoordinates,
+  getCandidateCoordsForCity,
   loadGoogleMapsSdk,
   getGoogleMapsApiKey,
+  onGoogleMapsAuthFailure,
   LatLng,
 } from '../utils/mapUtils';
 import {
@@ -52,6 +54,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
 
   const [mapEngine, setMapEngine] = useState<'google' | 'radar'>('google');
   const [loading, setLoading] = useState(true);
+  const [authErrorNotice, setAuthErrorNotice] = useState(false);
   const [activeProperty, setActiveProperty] = useState<CandidateProperty | null>(null);
   const [radarZoom, setRadarZoom] = useState(1);
   const [radarPan, setRadarPan] = useState({ x: 0, y: 0 });
@@ -60,13 +63,48 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
 
   const cityCenter = useMemo(() => getCityCenter(city), [city]);
 
+  // Listen to Google Maps auth failure globally
+  useEffect(() => {
+    const unsub = onGoogleMapsAuthFailure(() => {
+      console.warn('Google Maps 授权失败，自动无缝切换到空间雷达等时圈');
+      setMapEngine('radar');
+      setLoading(false);
+      setAuthErrorNotice(true);
+    });
+    return unsub;
+  }, []);
+
+  // Detect Google Maps grey error overlay in the DOM and auto-recover
+  useEffect(() => {
+    if (mapEngine !== 'google' || !mapContainerRef.current) return;
+    const observer = new MutationObserver(() => {
+      const container = mapContainerRef.current;
+      if (
+        container &&
+        (container.querySelector('.gm-err-container') ||
+          container.textContent?.includes('此页面未能正确加载') ||
+          container.textContent?.includes('糟糕！出了点问题'))
+      ) {
+        console.warn('检测到 Google 地图界面异常，自动切换到高精度雷达拓扑视图');
+        setMapEngine('radar');
+        setLoading(false);
+        setAuthErrorNotice(true);
+      }
+    });
+
+    observer.observe(mapContainerRef.current, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => observer.disconnect();
+  }, [mapEngine]);
+
   // Compute resolved coordinates for every candidate
   const candidatesWithCoords = useMemo(() => {
     return candidates.map((cand, idx) => {
-      const coords =
-        cand.coordinates && cand.coordinates.lat && cand.coordinates.lng
-          ? cand.coordinates
-          : getCandidateApproxCoordinates(cand.id, cityCenter, idx);
+      const coords = getCandidateCoordsForCity(cand, cityCenter, idx);
       return {
         ...cand,
         resolvedCoords: coords,
@@ -104,7 +142,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
             mapTypeControl: false,
             streetViewControl: false,
             fullscreenControl: false,
-            internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
+            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
           });
 
           mapInstanceRef.current = map;
@@ -120,6 +158,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
         if (!isCancelled) {
           setMapEngine('radar');
           setLoading(false);
+          setAuthErrorNotice(true);
         }
       }
     }
@@ -291,7 +330,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
     >
       {/* Map Header Toolbar */}
       <div
-        className={`px-3.5 py-2.5 flex items-center justify-between border-b shrink-0 ${
+        className={`px-3.5 py-2.5 flex items-center justify-between border-b shrink-0 flex-wrap gap-2 ${
           isDark ? 'bg-neutral-900/90 border-neutral-800' : 'bg-neutral-50/90 border-neutral-200'
         }`}
       >
@@ -302,15 +341,6 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
           <div>
             <div className="text-xs font-bold flex items-center gap-1.5 font-mono-code">
               <span>{city} 候选房源地理坐标拓扑</span>
-              <span
-                className={`text-[9px] px-1.5 py-0.2 rounded font-sans uppercase ${
-                  mapEngine === 'google'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
-                    : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300'
-                }`}
-              >
-                {mapEngine === 'google' ? 'Google Maps 引擎' : '空间雷达拓扑'}
-              </span>
             </div>
             <div className="text-[10px] opacity-70 flex items-center gap-1 font-mono-code">
               <span>中心: {cityCenter.lat.toFixed(4)}, {cityCenter.lng.toFixed(4)}</span>
@@ -321,6 +351,36 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5">
+          {/* Engine Switcher */}
+          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 p-0.5 bg-neutral-100/80 dark:bg-neutral-800/80 text-[10px] font-mono-code mr-1">
+            <button
+              type="button"
+              onClick={() => setMapEngine('radar')}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'radar'
+                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="切换为本地动态空间雷达拓扑"
+            >
+              <Compass className="w-3 h-3" />
+              <span>空间雷达拓扑</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapEngine('google')}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'google'
+                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="切换为 Google Maps 实景底图"
+            >
+              <Layers className="w-3 h-3" />
+              <span>Google 地图</span>
+            </button>
+          </div>
+
           {mapEngine === 'radar' && (
             <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
               <button
@@ -375,6 +435,23 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
           )}
         </div>
       </div>
+
+      {/* Network / Auth Notice Banner */}
+      {authErrorNotice && (
+        <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>Google 地图网络连接受限，已无缝切换至「高精度空间雷达拓扑」（房源坐标均正常工作）</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAuthErrorNotice(false)}
+            className="hover:opacity-75 font-mono-code text-[11px] underline ml-2 cursor-pointer"
+          >
+            忽略
+          </button>
+        </div>
+      )}
 
       {/* Map Container Viewport */}
       <div
