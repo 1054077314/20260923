@@ -1,0 +1,6 @@
+{
+  "name": "RentPlan - 租房全流程复用规划看板",
+  "description": "专业级全周期租房规划与决策工具：覆盖预算测算、候选房源加权比选、看房实地防坑清单、合同避雷指南与搬家流程，支持保存多套方案与模板快速复用。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
