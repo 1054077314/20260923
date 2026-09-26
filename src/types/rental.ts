@@ -1,5 +1,18 @@
 export type PlanStatus = 'planning' | 'inspecting' | 'deciding' | 'signed' | 'moved_in' | 'archived';
 
+/**
+ * 房源来源。决定字段可信度与展示口径：
+ *  - snapshot58: 58 网页快照，字段来自真实页面，缺失即缺失
+ *  - ai_search : 大模型联网检索，需标注来源链接
+ *  - manual    : 用户手动录入
+ *  - template  : 预设模板默认数据
+ * 来源一律写这个字段，禁止靠 notes 字符串反推。
+ */
+export type ListingSource = 'snapshot58' | 'ai_search' | 'manual' | 'template';
+
+/** 坐标来源：coordinates 的出处，unknown 表示从未解析成功 */
+export type CoordinateSource = 'explicit' | 'amap' | 'local_dict' | 'geocache' | 'unknown';
+
 export type RoomType =
   | 'single_shared' // 合租单间(共卫)
   | 'master_shared' // 合租主卧(独卫)
@@ -12,9 +25,10 @@ export type LandlordType =
   | 'direct_landlord' // 房东直租
   | 'intermediary' // 正规中介
   | 'brand_apartment' // 品牌长租公寓
-  | 'sublessor'; // 二房东/转租
+  | 'sublessor' // 二房东/转租
+  | 'unknown'; // 来源未标明，待核实
 
-export type UtilitiesType = 'residential' | 'commercial'; // 民水民电 vs 商水商电
+export type UtilitiesType = 'residential' | 'commercial' | 'unknown'; // 民水民电 vs 商水商电 vs 待核实
 
 export interface BudgetConfig {
   monthlyIncome: number; // 月收入
@@ -57,8 +71,8 @@ export interface CandidateProperty {
   community: string;
   address: string;
   subwayStation: string;
-  walkToSubwayMin: number;
-  commuteMinutes: number;
+  walkToSubwayMin?: number; // 真实值（58 快照可能为 null，禁止编造默认值）
+  commuteMinutes?: number; // 仅为历史/手动录入数据保留；真实耗时以运行时路线规划为准
   areaSqMeters: number;
   floor: string; // 比如 "6F/18F 电梯"
   rent: number; // 月租金
@@ -87,6 +101,10 @@ export interface CandidateProperty {
     lat: number;
     lng: number;
   };
+  coordinateSource?: CoordinateSource; // coordinates 的出处，未解析为 unknown
+  source?: ListingSource; // 房源来源，缺省按 manual 处理
+  sourceUrl?: string; // 原始挂牌/检索链接
+  sourcePlatform?: string; // 来源平台名（58同城 / 贝壳找房 / 豆瓣租房 …）
   amenities?: string[]; // 配套设施 如 ['独立卫浴', '燃气厨房', '阳台晾晒', '洗衣机', '冰箱', '空调', '智能门锁', '集中供暖', '带电梯', '停车位']
   neighborhoodInfo?: {
     lastQueried?: string;

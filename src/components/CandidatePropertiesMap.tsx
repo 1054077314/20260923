@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
-  getCandidateApproxCoordinates,
-  getCandidateCoordsForCity,
+  getExplicitCoordinates,
   loadGoogleMapsSdk,
   getGoogleMapsApiKey,
   onGoogleMapsAuthFailure,
@@ -101,16 +100,15 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
     return () => observer.disconnect();
   }, [mapEngine]);
 
-  // Compute resolved coordinates for every candidate
+  // 只有显式真实坐标才上图；解析不出 = 不画点，绝不锚定到城市中心冒充位置
   const candidatesWithCoords = useMemo(() => {
-    return candidates.map((cand, idx) => {
-      const coords = getCandidateCoordsForCity(cand, cityCenter, idx);
-      return {
-        ...cand,
-        resolvedCoords: coords,
-      };
-    });
-  }, [candidates, cityCenter]);
+    return candidates
+      .map((cand) => {
+        const coords = getExplicitCoordinates(cand);
+        return coords ? { ...cand, resolvedCoords: coords } : null;
+      })
+      .filter((c): c is typeof candidates[number] & { resolvedCoords: LatLng } => c !== null);
+  }, [candidates]);
 
   // Initialize Google Maps instance with graceful fallback
   useEffect(() => {
@@ -226,7 +224,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
               padding: 1px 4px;
               border-radius: 4px;
               background-color: rgba(255,255,255,0.2);
-            ">${candidate.walkToSubwayMin}m</span>
+            ">${candidate.walkToSubwayMin != null ? candidate.walkToSubwayMin + 'm' : '—'}</span>
           </div>
         `;
 
@@ -552,7 +550,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
                       <MapPin className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-indigo-400'}`} />
                       <span>¥{candidate.rent}</span>
                       <span className="text-[10px] font-normal opacity-80 pl-0.5">
-                        {candidate.walkToSubwayMin}m
+                        {candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'}
                       </span>
                     </div>
 
@@ -591,7 +589,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
 
             <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800">
               <span className="text-slate-300">
-                🚇 距地铁步行约 <strong>{activeProperty.walkToSubwayMin}</strong> 分钟
+                🚇 距地铁步行约 <strong>{activeProperty.walkToSubwayMin != null ? activeProperty.walkToSubwayMin : '—'}</strong> 分钟
               </span>
 
               {activeProperty.weightedScore && (

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PlanTemplate, RentalPlan } from '../types/rental';
 import { PRESET_TEMPLATES } from '../data/defaultTemplates';
 import { getCustomTemplates } from '../utils/storage';
+import { addDays, getTodayDateString } from '../utils/countdownUtils';
 import { Plus, X, Layers, Check } from 'lucide-react';
 
 interface NewPlanModalProps {
@@ -17,11 +18,9 @@ export const NewPlanModal: React.FC<NewPlanModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [name, setName] = useState('2026 新城市租房规划');
+  const [name, setName] = useState(`${new Date().getFullYear()} 新城市租房规划`);
   const [city, setCity] = useState('');
-  const [targetDate, setTargetDate] = useState(
-    new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-  );
+  const [targetDate, setTargetDate] = useState(addDays(getTodayDateString(), 30));
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('graduate_budget');
 
   const customTemplates = getCustomTemplates();

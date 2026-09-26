@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { RentalPlan, CandidateProperty } from '../types/rental';
+import { RentalPlan } from '../types/rental';
 import { CommuteHeatmapMap } from './CommuteHeatmapMap';
+import type { TransitMode } from '../utils/mapUtils';
+import { computeCommuteStats } from '../utils/commuteStats';
+import { useCandidatePool } from '../utils/useCandidatePool';
+import { useCommuteRoutes } from '../utils/useCommuteRoutes';
 import { Flame, MapPin } from 'lucide-react';
 
 interface CommuteModuleProps {
@@ -19,8 +23,12 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
   theme = 'light',
 }) => {
   const budget = plan.budget;
-  const candidates = plan.candidates || [];
+  const shortlist = plan.candidates || [];
   const isDark = theme === 'dark';
+
+  // 数据池模式：默认 all（全部真实快照房源，按当前城市/预算过滤）；
+  // 只有用户明确切到 shortlist 时才限制到手动导入的已选候选。
+  const [poolMode, setPoolMode] = useState<'all' | 'shortlist'>('all');
 
   const [city, setCity] = useState(plan.city || '乌鲁木齐');
   const [workplace, setWorkplace] = useState(budget.workplace || '');
@@ -28,6 +36,27 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [workDaysPerWeek, setWorkDaysPerWeek] = useState(5);
   const [farePerTrip, setFarePerTrip] = useState(4); // 默认单程地铁/公交 4 元
+
+  // 真实路线状态：坐标与耗时全部来自高德实际路线规划，拿不到就诚实显示不可用
+  const [transitMode, setTransitMode] = useState<TransitMode>('subway');
+
+  // 全量真实房源快照：按当前城市拉取（server 端无截断），预算过滤在候选池里统一做
+  const maxRent = budget.maxMonthlyRent || 0;
+  const { pool: fullPool, snapshotMeta, snapshotError } = useCandidatePool({
+    shortlist,
+    city,
+    maxMonthlyRent: maxRent,
+  });
+
+  const candidates = poolMode === 'all' ? fullPool : shortlist;
+
+  // 工作地定位与逐房源真实路线耗时：统一走共享 hook，拿不到即不可用
+  const { workplaceState, routeInfo } = useCommuteRoutes({
+    candidates,
+    city,
+    workplace: budget.workplace,
+    transitMode,
+  });
 
   useEffect(() => {
     setCity(plan.city || '乌鲁木齐');
@@ -61,32 +90,29 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
     }
   };
 
-  // Calculations
-  const annualWorkDays = workDaysPerWeek * 50; // ~50 weeks
-
-  const candidateStats = candidates.map((c) => {
-    const oneWayMin = c.commuteMinutes || 30;
-    const roundTripMin = oneWayMin * 2;
-    const annualHours = Math.round((roundTripMin * annualWorkDays) / 60);
-    const annualFare = roundTripMin > 0 ? annualWorkDays * farePerTrip * 2 : 0;
-    const walkMin = c.walkToSubwayMin || 5;
-
-    return {
-      ...c,
-      oneWayMin,
-      roundTripMin,
-      annualHours,
-      annualFare,
-      walkMin,
-    };
+  // 耗时仅来自真实路线规划结果；拿不到 = null（显示不可用），绝不兜底编造
+  const candidateStats = computeCommuteStats(candidates, routeInfo, {
+    workDaysPerWeek,
+    farePerTrip,
   });
 
-  const sortedByTime = [...candidateStats].sort((a, b) => a.oneWayMin - b.oneWayMin);
+  // 可达过滤：默认只展示真实耗时 ≤ 上限的房源；超时 / 路线不可用 / 测算中的默认收起
+  const [onlyReachable, setOnlyReachable] = useState(true);
+  const reachableStats = candidateStats.filter(
+    (s) => s.oneWayMin != null && s.oneWayMin <= maxCommuteMinutes
+  );
+  const routesPending = candidateStats.some((s) => s.routeState === 'loading');
+  const displayedStats = onlyReachable ? reachableStats : candidateStats;
+
+  const availableStats = candidateStats.filter((s) => s.oneWayMin != null);
+  const sortedByTime = [...availableStats].sort((a, b) => (a.oneWayMin || 0) - (b.oneWayMin || 0));
   const bestCommute = sortedByTime[0] || null;
   const worstCommute = sortedByTime[sortedByTime.length - 1] || null;
 
   const savedHours =
-    bestCommute && worstCommute ? worstCommute.annualHours - bestCommute.annualHours : 0;
+    bestCommute && worstCommute && bestCommute.id !== worstCommute.id
+      ? (worstCommute.annualHours || 0) - (bestCommute.annualHours || 0)
+      : 0;
 
   // Theme styling helpers
   const cardBg = isDark
@@ -149,6 +175,14 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
             maxCommuteMinutes={maxCommuteMinutes}
             onUpdateMaxCommuteMinutes={handleUpdateMaxCommute}
             isDark={isDark}
+            transitMode={transitMode}
+            onTransitModeChange={setTransitMode}
+            workplaceState={workplaceState}
+            routeMinutes={Object.fromEntries(candidateStats.map((s) => [s.id, s.oneWayMin]))}
+            routeSegments={Object.fromEntries(
+              candidateStats.filter((s) => s.routeState === 'ok').map((s) => [s.id, (s as any).segments as any[] | undefined])
+            )}
+            onOpenComparison={onNavigateToMatrix}
           />
         </div>
       )}
@@ -359,17 +393,101 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                 // CANDIDATES ({candidates.length})
               </span>
             </div>
-            {onNavigateToMatrix && (
+            <div className="flex items-center gap-1.5">
+              {/* 数据源切换：默认展示全部真实房源，仅用户明确切换才限制到已选候选 */}
               <button
-                onClick={onNavigateToMatrix}
-                className={`text-[11px] font-mono-code transition-colors ${
-                  isDark
-                    ? 'text-neutral-400 hover:text-neutral-200'
-                    : 'text-neutral-500 hover:text-neutral-900'
+                type="button"
+                onClick={() => setPoolMode('all')}
+                className={`px-2 py-1 rounded text-[10px] font-mono-code border transition-colors cursor-pointer ${
+                  poolMode === 'all'
+                    ? isDark
+                      ? 'bg-rose-950/70 text-rose-300 border-rose-800 font-bold'
+                      : 'bg-rose-50 text-rose-700 border-rose-300 font-bold'
+                    : isDark
+                    ? 'border-neutral-800 text-neutral-400 hover:text-neutral-300'
+                    : 'border-neutral-200 text-neutral-600 hover:text-neutral-900'
                 }`}
+                title="展示当前城市+预算下所有真实快照房源"
               >
-                + 添加房源
+                全部真实房源 ({fullPool.length})
               </button>
+              <button
+                type="button"
+                onClick={() => setPoolMode('shortlist')}
+                className={`px-2 py-1 rounded text-[10px] font-mono-code border transition-colors cursor-pointer ${
+                  poolMode === 'shortlist'
+                    ? isDark
+                      ? 'bg-rose-950/70 text-rose-300 border-rose-800 font-bold'
+                      : 'bg-rose-50 text-rose-700 border-rose-300 font-bold'
+                    : isDark
+                    ? 'border-neutral-800 text-neutral-400 hover:text-neutral-300'
+                    : 'border-neutral-200 text-neutral-600 hover:text-neutral-900'
+                }`}
+                title="仅展示在「房源对比」中手动导入的已选候选"
+              >
+                已选候选 ({shortlist.length})
+              </button>
+              {onNavigateToMatrix && (
+                <button
+                  onClick={onNavigateToMatrix}
+                  className={`text-[11px] font-mono-code transition-colors ${
+                    isDark
+                      ? 'text-neutral-400 hover:text-neutral-200'
+                      : 'text-neutral-500 hover:text-neutral-900'
+                  }`}
+                >
+                  + 添加房源
+                </button>
+              )}
+            </div>
+          </div>
+
+          {snapshotError && (
+            <div className="p-2.5 rounded bg-rose-950/20 border border-rose-800/40 text-rose-500 dark:text-rose-300 text-[11px] font-mono-code">
+              ⚠ 真实房源快照不可用：{snapshotError}。当前仅展示已选候选，不会生成模拟数据。
+            </div>
+          )}
+          {!snapshotError && poolMode === 'all' && snapshotMeta && (
+            <div className="text-[10px] font-mono-code text-neutral-400">
+              数据源：{snapshotMeta} · 已按当前预算 ≤ ¥{maxRent || '无上限'}/月过滤 · 通勤达标情况以高德真实路线为准
+            </div>
+          )}
+          {/* 可达过滤开关：只看可达 / 展开全部（含超时与不可用） */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOnlyReachable(true)}
+              className={`px-2 py-1 rounded text-[10px] font-mono-code border transition-colors cursor-pointer ${
+                onlyReachable
+                  ? isDark
+                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800 font-bold'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-300 font-bold'
+                  : isDark
+                  ? 'border-neutral-800 text-neutral-400 hover:text-neutral-300'
+                  : 'border-neutral-200 text-neutral-600 hover:text-neutral-900'
+              }`}
+              title="只展示真实耗时在单程上限内的房源"
+            >
+              只看可达 ({reachableStats.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setOnlyReachable(false)}
+              className={`px-2 py-1 rounded text-[10px] font-mono-code border transition-colors cursor-pointer ${
+                !onlyReachable
+                  ? isDark
+                    ? 'bg-neutral-800 text-neutral-200 border-neutral-700 font-bold'
+                    : 'bg-neutral-100 text-neutral-800 border-neutral-300 font-bold'
+                  : isDark
+                  ? 'border-neutral-800 text-neutral-400 hover:text-neutral-300'
+                  : 'border-neutral-200 text-neutral-600 hover:text-neutral-900'
+              }`}
+              title="展开全部：含超时、路线不可用与测算中的房源"
+            >
+              展开全部 ({candidateStats.length})
+            </button>
+            {routesPending && (
+              <span className="text-[10px] font-mono-code text-neutral-400">路线测算中…</span>
             )}
           </div>
 
@@ -381,11 +499,27 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                   : 'border-neutral-200 bg-white text-neutral-400'
               }`}
             >
-              暂无候选房源，请在「03 // 房源对比」中添加房源。
+              {poolMode === 'shortlist'
+                ? '已选候选为空，请切换「全部真实房源」或在「03 // 房源对比」中导入房源。'
+                : snapshotError
+                ? '真实房源快照不可用，且已选候选为空。'
+                : `当前城市/预算条件下没有匹配的真实快照房源（预算上限 ¥${maxRent}/月）。`}
+            </div>
+          ) : displayedStats.length === 0 ? (
+            <div
+              className={`p-8 text-center border border-dashed rounded-lg text-xs ${
+                isDark
+                  ? 'border-neutral-800 text-neutral-500'
+                  : 'border-neutral-200 bg-white text-neutral-400'
+              }`}
+            >
+              {routesPending
+                ? '真实路线测算中，耗时结果陆续返回后可达房源会自动出现。'
+                : `当前上限 ${maxCommuteMinutes} 分钟内没有可达的真实房源（共测算 ${candidateStats.length} 套）。可放宽上限或点「展开全部」查看超时明细。`}
             </div>
           ) : (
             <div className="space-y-3">
-              {candidateStats.map((item) => {
+              {displayedStats.map((item) => {
                 const isFastest = bestCommute?.id === item.id;
                 return (
                   <div
@@ -421,7 +555,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                               FASTEST 最短通勤
                             </span>
                           )}
-                          {!isFastest && item.oneWayMin > maxCommuteMinutes && (
+                          {!isFastest && item.oneWayMin != null && item.oneWayMin > maxCommuteMinutes && (
                             <span
                               className={`font-mono-code text-[10px] px-1.5 py-0.5 rounded border ${
                                 isDark
@@ -432,7 +566,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                               超时 +{item.oneWayMin - maxCommuteMinutes}m
                             </span>
                           )}
-                          {!isFastest && item.oneWayMin <= maxCommuteMinutes && (
+                          {!isFastest && item.oneWayMin != null && item.oneWayMin <= maxCommuteMinutes && (
                             <span
                               className={`font-mono-code text-[10px] px-1.5 py-0.5 rounded border ${
                                 isDark
@@ -455,10 +589,25 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                             isDark ? 'text-neutral-100' : 'text-neutral-950'
                           }`}
                         >
-                          {item.oneWayMin}{' '}
-                          <span className="text-xs font-normal text-neutral-400">min</span>
+                          {item.oneWayMin != null ? (
+                            <>
+                              {item.oneWayMin}{' '}
+                              <span className="text-xs font-normal text-neutral-400">min</span>
+                            </>
+                          ) : item.routeState === 'loading' ? (
+                            <span className="text-xs font-mono-code text-neutral-400">查询中…</span>
+                          ) : (
+                            <span
+                              className="text-xs font-mono-code text-rose-500"
+                              title={item.routeReason || ''}
+                            >
+                              不可用
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[10px] text-neutral-400">单程总耗时</div>
+                        <div className="text-[10px] text-neutral-400">
+                          {item.oneWayMin != null ? '单程总耗时 · 高德实际路线' : '单程总耗时'}
+                        </div>
                       </div>
                     </div>
 
@@ -471,13 +620,15 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                       >
                         <div
                           className={`h-full rounded-full transition-all ${
-                            item.oneWayMin <= 30
+                            (item.oneWayMin ?? 99) <= 30
                               ? 'bg-emerald-500'
-                              : item.oneWayMin <= 45
+                              : (item.oneWayMin ?? 99) <= 45
                               ? 'bg-amber-500'
                               : 'bg-rose-500'
                           }`}
-                          style={{ width: `${Math.min(100, (item.oneWayMin / 75) * 100)}%` }}
+                          style={{
+                            width: item.oneWayMin != null ? `${Math.min(100, (item.oneWayMin / 75) * 100)}%` : '0%',
+                          }}
                         />
                       </div>
                     </div>
@@ -495,7 +646,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                             isDark ? 'text-neutral-300' : 'text-neutral-800'
                           }`}
                         >
-                          {item.walkMin} 分钟
+                          {item.walkMin != null ? item.walkMin + ' 分钟' : '—'}
                         </span>
                       </div>
                       <div>
@@ -505,7 +656,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                             isDark ? 'text-neutral-300' : 'text-neutral-800'
                           }`}
                         >
-                          {item.annualHours} 小时/年
+                          {item.annualHours != null ? item.annualHours + ' 小时/年' : '—'}
                         </span>
                       </div>
                       <div>
@@ -515,7 +666,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                             isDark ? 'text-neutral-300' : 'text-neutral-800'
                           }`}
                         >
-                          ¥{item.annualFare}
+                          {item.annualFare != null ? '¥' + item.annualFare : '—'}
                         </span>
                       </div>
                     </div>
@@ -534,6 +685,11 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
               <span className="font-mono-code text-[11px] text-neutral-400">// VERDICT</span>
             </div>
 
+            {workplaceState.status === 'unavailable' && (
+              <div className="p-2.5 rounded bg-rose-950/20 border border-rose-800/40 text-rose-500 dark:text-rose-300 text-[11px] font-mono-code mb-3">
+                ⚠ 真实路线暂不可用：{workplaceState.reason}。耗时与结论不会使用估算值。
+              </div>
+            )}
             {bestCommute ? (
               <>
                 <div className="space-y-2">
@@ -615,7 +771,9 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
               </>
             ) : (
               <div className="text-neutral-400 text-xs py-4">
-                暂无候选房源进行测算。请添加房源后查看对比。
+                {candidates.length > 0
+                  ? '当前没有任何房源拿到真实路线耗时（坐标或路线不可用），按规则不提供估算结论。'
+                  : '暂无候选房源进行测算。请添加房源后查看对比。'}
               </div>
             )}
           </div>

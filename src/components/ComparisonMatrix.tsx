@@ -4,11 +4,21 @@ import {
   CandidateProperty,
   EvaluationWeights,
   CandidateRating,
+  UtilitiesType,
 } from '../types/rental';
 import {
   calculateCandidateMonthlyTotal,
   calculateWeightedScore,
 } from '../utils/calculations';
+import {
+  CandidateFilterState,
+  RentRange,
+  filterCandidates,
+  isCandidateFilterActive,
+  sortCandidates,
+} from '../utils/candidateFilter';
+import { mergeImportedCandidates } from '../utils/listingPipeline';
+import { useCommuteRoutes } from '../utils/useCommuteRoutes';
 import { NeighborhoodSearchModal } from './NeighborhoodSearchModal';
 import { PropertySourcesModal } from './PropertySourcesModal';
 import { LiveListingScraperModal } from './LiveListingScraperModal';
@@ -96,8 +106,6 @@ const PRESET_TAG_FILTERS = [
   { id: 'south_facing', label: '朝南向' },
 ];
 
-type RentRange = 'all' | 'under1k' | '1k-2k' | '2k-3.5k' | 'over3.5k';
-
 export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
   plan,
   onUpdatePlan,
@@ -136,7 +144,7 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
   const [formArea, setFormArea] = useState(25);
   const [formFloor, setFormFloor] = useState('6F/18F 电梯');
   const [formRent, setFormRent] = useState(2500);
-  const [formUtilities, setFormUtilities] = useState<'residential' | 'commercial'>('residential');
+  const [formUtilities, setFormUtilities] = useState<UtilitiesType>('residential');
   const [formLandlord, setFormLandlord] = useState<CandidateProperty['landlordType']>('direct_landlord');
   const [formDepositTerms, setFormDepositTerms] = useState('押一付一');
   const [formPropertyFee, setFormPropertyFee] = useState(0);
@@ -158,9 +166,18 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
   const handleBatchImportScrapedListings = (newCandidates: CandidateProperty[]) => {
+    // 已选候选与抓取结果共用一套去重键：重复导入同一房源不再产生重复条目
+    const { merged, added, skipped } = mergeImportedCandidates(plan.candidates, newCandidates);
+    if (added === 0) {
+      alert(`本次勾选的 ${skipped} 套房源都已存在于候选清单中，无需重复导入。`);
+      return;
+    }
+    if (skipped > 0) {
+      console.info(`批量导入：新增 ${added} 套，跳过重复 ${skipped} 套`);
+    }
     onUpdatePlan({
       ...plan,
-      candidates: [...plan.candidates, ...newCandidates],
+      candidates: merged,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -232,8 +249,8 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
     setFormCommunity(c.community);
     setFormAddress(c.address);
     setFormSubway(c.subwayStation);
-    setFormWalkMin(c.walkToSubwayMin);
-    setFormCommuteMin(c.commuteMinutes);
+    setFormWalkMin(c.walkToSubwayMin ?? 0);
+    setFormCommuteMin(c.commuteMinutes ?? 0);
     setFormArea(c.areaSqMeters);
     setFormFloor(c.floor);
     setFormRent(c.rent);
@@ -246,7 +263,7 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
     setFormContactName(c.contactName || '');
     setFormContactPhone(c.contactPhone || '');
     setFormNotes(c.notes || '');
-    setFormAmenities(c.amenities || ['民用水电', '阳台晾晒', '空调']);
+    setFormAmenities(c.amenities || []);
     setFormPros(c.pros || []);
     setFormCons(c.cons || []);
     setFormRatings(c.ratings || { ...DEFAULT_RATING });
@@ -394,97 +411,34 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
     onUpdatePlan({ ...plan, candidates: updated, updatedAt: new Date().toISOString() });
   };
 
-  // Filter and sort candidates
-  const filteredCandidates = plan.candidates.filter((c) => {
-    // 1. Text Search Query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchTitle = (c.title || '').toLowerCase().includes(q);
-      const matchCommunity = (c.community || '').toLowerCase().includes(q);
-      const matchAddress = (c.address || '').toLowerCase().includes(q);
-      const matchSubway = (c.subwayStation || '').toLowerCase().includes(q);
-      const matchNotes = (c.notes || '').toLowerCase().includes(q);
-      const matchPros = (c.pros || []).some((p) => p.toLowerCase().includes(q));
-      const matchAmenities = (c.amenities || []).some((a) => a.toLowerCase().includes(q));
-      if (
-        !matchTitle &&
-        !matchCommunity &&
-        !matchAddress &&
-        !matchSubway &&
-        !matchNotes &&
-        !matchPros &&
-        !matchAmenities
-      ) {
-        return false;
-      }
-    }
-
-    // 2. Rent Range Filter
-    if (rentFilter === 'under1k' && c.rent > 1000) return false;
-    if (rentFilter === '1k-2k' && (c.rent <= 1000 || c.rent > 2000)) return false;
-    if (rentFilter === '2k-3.5k' && (c.rent <= 2000 || c.rent > 3500)) return false;
-    if (rentFilter === 'over3.5k' && c.rent <= 3500) return false;
-
-    // 3. Location / Tag Filters
-    if (selectedTagFilters.includes('near_subway') && c.walkToSubwayMin > 10) return false;
-    if (selectedTagFilters.includes('residential_utilities') && c.utilitiesType !== 'residential')
-      return false;
-    if (selectedTagFilters.includes('direct_landlord') && c.landlordType !== 'direct_landlord')
-      return false;
-    if (selectedTagFilters.includes('elevator') && !c.floor.includes('电梯')) return false;
-    if (
-      selectedTagFilters.includes('south_facing') &&
-      !c.title.includes('南') &&
-      !(c.pros || []).some((p) => p.includes('南'))
-    )
-      return false;
-
-    // 4. Amenities Filter
-    if (selectedAmenityFilters.length > 0) {
-      const candidateAmenities = new Set(c.amenities || []);
-      for (const amenity of selectedAmenityFilters) {
-        const hasAmenity =
-          candidateAmenities.has(amenity) ||
-          (c.pros || []).some((p) => p.includes(amenity)) ||
-          (c.notes || '').includes(amenity);
-        if (!hasAmenity) return false;
-      }
-    }
-
-    // 5. Pinned / Starred Filter
-    if (onlyPinned && !c.isPinned) return false;
-
-    return true;
+  // 真实通勤耗时：与通勤页共用同一 hook（高德真实路线），用于展示与排序
+  const { routeInfo } = useCommuteRoutes({
+    candidates: plan.candidates,
+    city: plan.city || '乌鲁木齐',
+    workplace: plan.budget.workplace || '',
+    transitMode: 'subway',
   });
+  const routeMinutes: Record<string, number | null | undefined> = Object.fromEntries(
+    plan.candidates.map((c) => {
+      const r = routeInfo[c.id];
+      return [c.id, r?.state === 'ok' && typeof r.minutes === 'number' ? r.minutes : null];
+    })
+  );
 
-  const sortedCandidates = [...filteredCandidates].sort((a, b) => {
-    // 1. Pinned (高亮优选) candidates always pinned at the top
-    const aPinned = a.isPinned ? 1 : 0;
-    const bPinned = b.isPinned ? 1 : 0;
-    if (aPinned !== bPinned) {
-      return bPinned - aPinned;
-    }
-
-    // 2. Sort by selected metric
-    let result = 0;
-    if (sortBy === 'score') {
-      result = (b.weightedScore || 0) - (a.weightedScore || 0);
-    } else if (sortBy === 'rent') {
-      result = a.rent - b.rent;
-    } else if (sortBy === 'commute') {
-      result = a.commuteMinutes - b.commuteMinutes;
-    }
-    return sortOrder === 'desc' ? result : -result;
-  });
+  // 筛选与排序统一走 candidateFilter（唯一口径），组件只保留 UI 状态
+  const filterState: CandidateFilterState = {
+    searchQuery,
+    rentFilter,
+    onlyPinned,
+    selectedTagFilters,
+    selectedAmenityFilters,
+  };
+  const filteredCandidates = filterCandidates(plan.candidates, filterState);
+  const sortedCandidates = sortCandidates(filteredCandidates, sortBy, sortOrder, routeMinutes);
 
   const pinnedCount = plan.candidates.filter((c) => c.isPinned).length;
 
-  const hasActiveFilters =
-    searchQuery.trim() !== '' ||
-    rentFilter !== 'all' ||
-    onlyPinned ||
-    selectedTagFilters.length > 0 ||
-    selectedAmenityFilters.length > 0;
+  const hasActiveFilters = isCandidateFilterActive(filterState);
 
   const handleResetFilters = () => {
     setSearchQuery('');
@@ -1147,10 +1101,21 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                           isDark ? 'text-neutral-200' : 'text-neutral-900'
                         }`}
                       >
-                        {candidate.commuteMinutes} 分钟
+                        {routeMinutes[candidate.id] != null
+                          ? `${routeMinutes[candidate.id]} 分钟`
+                          : candidate.commuteMinutes != null
+                          ? `${candidate.commuteMinutes} 分钟*`
+                          : routeInfo[candidate.id]?.state === 'loading'
+                          ? '查询中…'
+                          : '路线耗时待实测'}
                       </span>
                       <span className="text-[10px] text-neutral-400 block truncate">
-                        步行{candidate.walkToSubwayMin}m 至 {candidate.subwayStation || '地铁站'}
+                        {routeMinutes[candidate.id] != null
+                          ? '高德真实路线'
+                          : candidate.commuteMinutes != null
+                          ? '手动录入值'
+                          : '高德路线不可用'}
+                        {' · '}步行{candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'} 至 {candidate.subwayStation || '地铁站'}
                       </span>
                     </div>
                   </div>
@@ -1161,14 +1126,20 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                       isDark ? 'text-neutral-400' : 'text-neutral-600'
                     }`}
                   >
-                    <span>{candidate.utilitiesType === 'residential' ? '民水民电' : '商水商电'}</span>
+                    <span>{candidate.utilitiesType === 'residential' ? '民水民电' : candidate.utilitiesType === 'commercial' ? '商水商电' : '水电待核实'}</span>
                     <span
                       aria-hidden="true"
                       className={isDark ? 'text-neutral-600' : 'text-neutral-300'}
                     >
                       ·
                     </span>
-                    <span>{candidate.landlordType === 'direct_landlord' ? '房东直租' : '中介/公寓'}</span>
+                    <span>
+                      {candidate.landlordType === 'direct_landlord'
+                        ? '房东直租'
+                        : candidate.landlordType === 'unknown'
+                        ? '出租方待核实'
+                        : '中介/公寓'}
+                    </span>
                     {candidate.floor && (
                       <>
                         <span

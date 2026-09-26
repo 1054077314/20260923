@@ -6,7 +6,7 @@ import {
   Trash2,
   Check,
 } from 'lucide-react';
-import { getCountdownDiff } from '../utils/countdownUtils';
+import { getCountdownDiff, shiftPlanDates } from '../utils/countdownUtils';
 
 interface TimelineModuleProps {
   plan: RentalPlan;
@@ -43,6 +43,18 @@ export const TimelineModule: React.FC<TimelineModuleProps> = ({
     onUpdatePlan({
       ...plan,
       targetDate: newDate,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  // Re-anchor the schedule so the target date lands on today + N days,
+  // shifting absolute task/inspection dates along with it
+  const handlePostpone = (daysFromNow: number) => {
+    const deltaDays = daysFromNow - countdown.diffDays;
+    const shifted = shiftPlanDates(plan, deltaDays);
+    setTargetDateInput(shifted.targetDate || '');
+    onUpdatePlan({
+      ...shifted,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -172,9 +184,11 @@ export const TimelineModule: React.FC<TimelineModuleProps> = ({
                   isDark ? 'text-neutral-100' : 'text-neutral-950'
                 }`}
               >
-                {countdown.diffDays >= 0 ? countdown.diffDays : 0}
+                {countdown.isPast ? Math.abs(countdown.diffDays) : Math.max(countdown.diffDays, 0)}
               </span>
-              <span className="text-sm font-mono-code text-neutral-400">DAYS REMAINING 天</span>
+              <span className="text-sm font-mono-code text-neutral-400">
+                {countdown.isPast ? 'DAYS OVERDUE 逾期天数' : 'DAYS REMAINING 天'}
+              </span>
             </div>
 
             <div className="text-xs text-neutral-500">
@@ -182,6 +196,21 @@ export const TimelineModule: React.FC<TimelineModuleProps> = ({
                 ? '已到达或超过目标入住日期，请抓紧办理入住交接手续。'
                 : `预计于 ${plan.targetDate} 前完成签约、验房与搬家全流程。`}
             </div>
+
+            {(countdown.isPast || countdown.isToday) && (
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-[11px] text-neutral-400">日程已到期，一键顺延至：</span>
+                {[7, 14, 30].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => handlePostpone(d)}
+                    className="px-2.5 py-1 rounded border border-rose-200 bg-rose-50 text-rose-600 text-[11px] font-mono-code hover:bg-rose-100 transition-colors"
+                  >
+                    {d} 天后
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

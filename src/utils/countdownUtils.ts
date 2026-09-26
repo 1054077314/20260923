@@ -68,6 +68,80 @@ export function computeTaskDueDate(baseTargetDate: string, task: MovingTask): st
   return addDays(baseTargetDate, offset);
 }
 
+/**
+ * Shifts a YYYY-MM month string by the given number of days
+ */
+export function addDaysToMonth(monthStr: string, days: number): string {
+  if (!monthStr) return monthStr;
+  const [year, month] = monthStr.split('-').map(Number);
+  if (!year || !month) return monthStr;
+  return addDays(`${monthStr}-01`, days).slice(0, 7);
+}
+
+export interface DatedPlanFields {
+  targetDate?: string;
+  candidates?: Array<{ inspectionDate?: string }>;
+  movingTasks?: Array<{ dueDate?: string }>;
+  monthlyExpenses?: Array<{ month: string }>;
+}
+
+/**
+ * Shifts every absolute date kept on a plan/template by the same delta,
+ * preserving the relative structure between move-in, inspections and expense months
+ */
+export function shiftPlanDates<T extends DatedPlanFields>(data: T, deltaDays: number): T {
+  if (!deltaDays) return data;
+  return {
+    ...data,
+    targetDate: data.targetDate ? addDays(data.targetDate, deltaDays) : data.targetDate,
+    candidates: data.candidates?.map((c) =>
+      c.inspectionDate ? { ...c, inspectionDate: addDays(c.inspectionDate, deltaDays) } : c
+    ),
+    movingTasks: data.movingTasks?.map((t) =>
+      t.dueDate ? { ...t, dueDate: addDays(t.dueDate, deltaDays) } : t
+    ),
+    monthlyExpenses: data.monthlyExpenses?.map((e) => ({
+      ...e,
+      month: addDaysToMonth(e.month, deltaDays),
+    })),
+  };
+}
+
+/**
+ * Parses a YYYY-MM-DD string into a local-midnight Date
+ */
+function parseYmd(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+/**
+ * Re-anchors template dates onto a future horizon when they already expired,
+ * so freshly created plans never start life overdue. Dates still well in the
+ * future are left untouched.
+ */
+export function rebaselinePlanDates<T extends DatedPlanFields>(data: T): T {
+  const MIN_HORIZON_DAYS = 7;
+  const DEFAULT_HORIZON_DAYS = 30;
+
+  const todayStr = getTodayDateString();
+  const targetDate = data.targetDate || '';
+
+  if (targetDate) {
+    const diffDays = Math.round(
+      (parseYmd(targetDate).getTime() - parseYmd(todayStr).getTime()) / 86400000
+    );
+    if (diffDays >= MIN_HORIZON_DAYS) return data;
+  }
+
+  const anchor = addDays(todayStr, DEFAULT_HORIZON_DAYS);
+  const deltaDays = targetDate
+    ? Math.round((parseYmd(anchor).getTime() - parseYmd(targetDate).getTime()) / 86400000)
+    : DEFAULT_HORIZON_DAYS;
+
+  return shiftPlanDates({ ...data, targetDate: targetDate || anchor }, deltaDays);
+}
+
 export interface CountdownDiff {
   diffDays: number;
   isToday: boolean;

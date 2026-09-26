@@ -2,10 +2,6 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
-  getCandidateApproxCoordinates,
-  getCandidateCoordsForCity,
-  getWorkplaceCoordinates,
-  calculateCommuteRadiusMeters,
   loadGoogleMapsSdk,
   getGoogleMapsApiKey,
   onGoogleMapsAuthFailure,
@@ -31,6 +27,11 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
+import {
+  EnrichedCommuteCandidate,
+  annualHoursFromOneWay,
+  enrichListingsForMap,
+} from '../utils/commuteStats';
 
 interface CommuteHeatmapMapProps {
   candidates: CandidateProperty[];
@@ -40,15 +41,15 @@ interface CommuteHeatmapMapProps {
   onUpdateMaxCommuteMinutes?: (minutes: number) => void;
   isDark?: boolean;
   className?: string;
+  transitMode: TransitMode;
+  onTransitModeChange: (mode: TransitMode) => void;
+  workplaceState: { status: 'loading' | 'ok' | 'unavailable'; coord?: LatLng; reason?: string };
+  routeMinutes?: Record<string, number | null | undefined>;
+  routeSegments?: Record<string, any[] | undefined>;
+  onOpenComparison?: () => void;
 }
 
-export type EnrichedCandidate = CandidateProperty & {
-  resolvedCoords: LatLng;
-  commuteMin: number;
-  isComfortable: boolean;
-  isWithinLimit: boolean;
-  overMinutes: number;
-};
+export type EnrichedCandidate = EnrichedCommuteCandidate;
 
 export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   candidates,
@@ -58,17 +59,24 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   onUpdateMaxCommuteMinutes,
   isDark = false,
   className = '',
+  transitMode,
+  onTransitModeChange,
+  workplaceState = { status: 'loading' },
+  routeMinutes = {},
+  routeSegments = {},
+  onOpenComparison,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
   const circlesRef = useRef<any[]>([]);
+  const routeLayerRef = useRef<any[]>([]);
   const workplaceMarkerRef = useRef<any>(null);
 
   const [mapEngine, setMapEngine] = useState<'google' | 'radar'>('google');
   const [loading, setLoading] = useState(true);
   const [authErrorNotice, setAuthErrorNotice] = useState(false);
-  const [transitMode, setTransitMode] = useState<TransitMode>('subway');
+  const setTransitMode = onTransitModeChange;
   const [showHeatOverlay, setShowHeatOverlay] = useState(true);
   const [onlyShowWithinLimit, setOnlyShowWithinLimit] = useState(false);
   const [activeCandidate, setActiveCandidate] = useState<EnrichedCandidate | null>(null);
@@ -80,10 +88,11 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const cityCenter = useMemo(() => getCityCenter(city), [city]);
-  const workplaceCoords = useMemo(
-    () => getWorkplaceCoordinates(workplace, cityCenter),
-    [workplace, cityCenter]
-  );
+  // 真实定位：仅使用高德地理编码结果；拿不到 = null（不画工作地标记，不参与耗时）
+  const workplaceCoords: LatLng | null =
+    workplaceState.status === 'ok' && workplaceState.coord ? workplaceState.coord : null;
+  // 地图视野中心：有真实工作地用工作地，否则回落城市中心（仅作视野）
+  const displayCenter: LatLng = workplaceCoords || cityCenter;
 
   // Listen to Google Maps auth failure globally
   useEffect(() => {
@@ -123,40 +132,13 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     return () => observer.disconnect();
   }, [mapEngine]);
 
-  // Comfortable commute threshold (e.g. 25 min or 65% of max limit)
-  const comfortableMinutes = useMemo(() => {
-    return Math.max(15, Math.round(Math.min(25, maxCommuteMinutes * 0.65)));
-  }, [maxCommuteMinutes]);
-
-  // Radiuses in meters
-  const comfortableRadiusM = useMemo(
-    () => calculateCommuteRadiusMeters(comfortableMinutes, transitMode),
-    [comfortableMinutes, transitMode]
+  // 富化与统计统一走 commuteStats（唯一口径），组件只保留“仅看达标”UI 开关
+  const { plotted: candidatesWithCoords, coverage } = useMemo(
+    () => enrichListingsForMap(candidates, routeMinutes, maxCommuteMinutes),
+    [candidates, routeMinutes, maxCommuteMinutes]
   );
-  const maxRadiusM = useMemo(
-    () => calculateCommuteRadiusMeters(maxCommuteMinutes, transitMode),
-    [maxCommuteMinutes, transitMode]
-  );
-
-  // Compute resolved candidate coordinates
-  const candidatesWithCoords = useMemo(() => {
-    return candidates.map((cand, idx) => {
-      const coords = getCandidateCoordsForCity(cand, cityCenter, idx);
-      const commuteMin = cand.commuteMinutes || 30;
-      const isComfortable = commuteMin <= comfortableMinutes;
-      const isWithinLimit = commuteMin <= maxCommuteMinutes;
-      const overMinutes = isWithinLimit ? 0 : commuteMin - maxCommuteMinutes;
-
-      return {
-        ...cand,
-        resolvedCoords: coords,
-        commuteMin,
-        isComfortable,
-        isWithinLimit,
-        overMinutes,
-      };
-    });
-  }, [candidates, cityCenter, comfortableMinutes, maxCommuteMinutes]);
+  const stats = coverage;
+  const noCoordCount = coverage.noCoordCount;
 
   // Filtered candidates based on toggle
   const visibleCandidates = useMemo(() => {
@@ -164,21 +146,13 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     return candidatesWithCoords.filter((c) => c.isWithinLimit);
   }, [candidatesWithCoords, onlyShowWithinLimit]);
 
-  // Statistics
-  const stats = useMemo(() => {
-    const total = candidatesWithCoords.length;
-    const withinCount = candidatesWithCoords.filter((c) => c.isWithinLimit).length;
-    const comfortableCount = candidatesWithCoords.filter((c) => c.isComfortable).length;
-    const overCount = total - withinCount;
-    const avgMinutes =
-      total > 0
-        ? Math.round(
-            candidatesWithCoords.reduce((acc, c) => acc + c.commuteMin, 0) / total
-          )
-        : 0;
-
-    return { total, withinCount, comfortableCount, overCount, avgMinutes };
-  }, [candidatesWithCoords]);
+  // 自动选中第一个可作图房源，便于直接展示真实路线
+  useEffect(() => {
+    if (!activeCandidate && visibleCandidates.length > 0) {
+      setActiveCandidate(visibleCandidates[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleCandidates.length]);
 
   // Initialize Google Maps instance with graceful fallback
   useEffect(() => {
@@ -200,7 +174,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
 
         if (!mapInstanceRef.current) {
           const map = new google.maps.Map(mapContainerRef.current, {
-            center: workplaceCoords,
+            center: displayCenter,
             zoom: 12,
             mapId: 'DEMO_MAP_ID',
             disableDefaultUI: false,
@@ -212,7 +186,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
           });
           mapInstanceRef.current = map;
         } else {
-          mapInstanceRef.current.setCenter(workplaceCoords);
+          mapInstanceRef.current.setCenter(displayCenter);
         }
 
         setMapEngine('google');
@@ -256,35 +230,8 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
       workplaceMarkerRef.current = null;
     }
 
-    if (showHeatOverlay) {
-      // Zone 2 Outer Circle (达标通勤圈)
-      const maxCircle = new google.maps.Circle({
-        strokeColor: '#f59e0b',
-        strokeOpacity: 0.8,
-        strokeWeight: 2,
-        fillColor: '#fbbf24',
-        fillOpacity: 0.14,
-        map,
-        center: workplaceCoords,
-        radius: maxRadiusM,
-        clickable: false,
-      });
-
-      // Zone 1 Inner Circle (舒适黄金圈)
-      const comfortableCircle = new google.maps.Circle({
-        strokeColor: '#10b981',
-        strokeOpacity: 0.9,
-        strokeWeight: 2,
-        fillColor: '#34d399',
-        fillOpacity: 0.22,
-        map,
-        center: workplaceCoords,
-        radius: comfortableRadiusM,
-        clickable: false,
-      });
-
-      circlesRef.current = [maxCircle, comfortableCircle];
-    }
+    // 无真实工作地坐标：不画工作地标记与圆圈（避免冒充定位）
+    if (!workplaceCoords) return;
 
     // Workplace Marker
     const { AdvancedMarkerElement } = google.maps.marker || {};
@@ -329,11 +276,53 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     mapEngine,
     workplaceCoords,
     workplace,
-    comfortableRadiusM,
-    maxRadiusM,
-    showHeatOverlay,
     loading,
   ]);
+
+  // Draw the selected listing's REAL AMap transit route on Google Maps:
+  // walk legs (gray thin) + bus legs (rose thick) + boarding/alighting dots
+  useEffect(() => {
+    if (mapEngine !== 'google') return;
+    const google = (window as any).google;
+    const map = mapInstanceRef.current;
+    if (!google?.maps?.Polyline || !map) return;
+
+    routeLayerRef.current.forEach((l: any) => {
+      if (l.setMap) l.setMap(null);
+    });
+    routeLayerRef.current = [];
+
+    const segs = activeCandidate ? routeSegments[activeCandidate.id] : null;
+    if (!segs || segs.length === 0) return;
+
+    segs.forEach((seg: any) => {
+      const line = new google.maps.Polyline({
+        path: seg.points.map((p: [number, number]) => ({ lat: p[1], lng: p[0] })),
+        strokeColor: seg.type === 'walk' ? '#94a3b8' : '#e11d48',
+        strokeOpacity: 0.95,
+        strokeWeight: seg.type === 'walk' ? 4 : 6,
+        map,
+        clickable: false,
+      });
+      routeLayerRef.current.push(line);
+
+      if (seg.type === 'bus') {
+        [seg.points[0], seg.points[seg.points.length - 1]].forEach((p: [number, number]) => {
+          const dot = new google.maps.Circle({
+            center: { lat: p[1], lng: p[0] },
+            radius: 60,
+            strokeColor: '#e11d48',
+            strokeWeight: 3,
+            fillColor: '#ffffff',
+            fillOpacity: 1,
+            map,
+            clickable: false,
+          });
+          routeLayerRef.current.push(dot);
+        });
+      }
+    });
+  }, [activeCandidate, routeSegments, mapEngine, loading]);
 
   // Sync Google Maps Candidate Markers
   useEffect(() => {
@@ -363,14 +352,16 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
       };
 
       // Color scheme based on commute category
-      let bgColor = '#10b981'; // green
-      let tagText = `${candidate.commuteMin}m 舒适`;
-      if (!candidate.isComfortable && candidate.isWithinLimit) {
+      let bgColor = '#6b7280'; // gray when no real route
+      let tagText = candidate.commuteMin != null ? `${candidate.commuteMin}m 舒适` : '路线不可用';
+      if (candidate.commuteMin != null && !candidate.isComfortable && candidate.isWithinLimit) {
         bgColor = '#f59e0b'; // amber
         tagText = `${candidate.commuteMin}m 达标`;
-      } else if (!candidate.isWithinLimit) {
+      } else if (candidate.commuteMin != null && !candidate.isWithinLimit) {
         bgColor = '#f43f5e'; // rose red
         tagText = `${candidate.commuteMin}m 超时+${candidate.overMinutes}m`;
+      } else if (candidate.commuteMin != null) {
+        bgColor = '#10b981'; // green
       }
 
       if (AdvancedMarkerElement) {
@@ -409,7 +400,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
         const marker = new AdvancedMarkerElement({
           map,
           position,
-          title: `${candidate.community} - 单程通勤 ${candidate.commuteMin} 分钟`,
+          title: `${candidate.community} - 单程通勤 ${candidate.commuteMin != null ? candidate.commuteMin + ' 分钟' : '路线不可用'}`,
           content: pinContainer,
         });
 
@@ -422,7 +413,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
         const marker = new google.maps.Marker({
           position,
           map,
-          title: `${candidate.community} - 单程通勤 ${candidate.commuteMin} 分钟`,
+          title: `${candidate.community} - 单程通勤 ${candidate.commuteMin != null ? candidate.commuteMin + ' 分钟' : '路线不可用'}`,
         });
         marker.addListener('click', () => {
           setActiveCandidate(candidate);
@@ -435,7 +426,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   // Center map on workplace
   const handleCenterWorkplace = () => {
     if (mapEngine === 'google' && mapInstanceRef.current) {
-      mapInstanceRef.current.panTo(workplaceCoords);
+      mapInstanceRef.current.panTo(displayCenter);
       mapInstanceRef.current.setZoom(12);
     } else {
       setRadarPan({ x: 0, y: 0 });
@@ -506,8 +497,9 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
             <div className="text-[11px] opacity-80 flex items-center gap-1.5 mt-0.5 flex-wrap">
               <span className="font-semibold text-rose-500 font-mono-code">📍 {city || '乌鲁木齐'}</span>
               <span>· <strong className="text-indigo-500">🏢 {workplace || `${city || '乌鲁木齐'}核心区`}</strong></span>
-              <span>· 达标房源: <strong>{stats.withinCount}/{stats.total}</strong> 套</span>
-              <span>· 候选均时: <strong>{stats.avgMinutes}</strong> 分钟</span>
+              <span>· 达标房源: <strong>{stats.withinCount}/{stats.total}</strong> 套（仅计真实路线）</span>
+              <span>· 候选均时: <strong>{stats.avgMinutes || '—'}</strong> 分钟</span>
+              {noCoordCount > 0 && <span>· 无真实坐标 {noCoordCount} 套未上图</span>}
             </div>
           </div>
         </div>
@@ -748,85 +740,58 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
             >
               {/* Radar Coordinate Grid & Concentric Commute Rings */}
               <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                <defs>
-                  {/* Comfortable Inner Gradient (Green) */}
-                  <radialGradient id="comfortGradient" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-                    <stop offset="85%" stopColor="#10b981" stopOpacity="0.18" />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity="0.04" />
-                  </radialGradient>
-
-                  {/* Acceptable Outer Gradient (Amber) */}
-                  <radialGradient id="acceptableGradient" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.22" />
-                    <stop offset="85%" stopColor="#f59e0b" stopOpacity="0.12" />
-                    <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.02" />
-                  </radialGradient>
-                </defs>
-
-                {/* Commute Heatmap Concentric Circles */}
-                {showHeatOverlay && (
-                  <>
-                    {/* Outer Acceptable Zone (≤ maxCommuteMinutes) */}
-                    <circle
-                      cx="50%"
-                      cy="50%"
-                      r={Math.min(260, Math.max(120, maxCommuteMinutes * 4.2))}
-                      fill="url(#acceptableGradient)"
-                      stroke="#f59e0b"
-                      strokeWidth="2"
-                      strokeDasharray="4 3"
-                    />
-
-                    {/* Inner Comfortable Zone (≤ comfortableMinutes) */}
-                    <circle
-                      cx="50%"
-                      cy="50%"
-                      r={Math.min(180, Math.max(70, comfortableMinutes * 4.2))}
-                      fill="url(#comfortGradient)"
-                      stroke="#10b981"
-                      strokeWidth="2.5"
-                    />
-                  </>
-                )}
-
                 {/* Background Distance Marks */}
                 <line x1="50%" y1="0%" x2="50%" y2="100%" stroke="rgba(255,255,255,0.06)" />
                 <line x1="0%" y1="50%" x2="100%" y2="50%" stroke="rgba(255,255,255,0.06)" />
               </svg>
 
-              {/* Dynamic Heatmap Zone Labels */}
-              {showHeatOverlay && (
-                <>
-                  <div
-                    style={{
-                      left: `calc(50% + ${Math.min(180, Math.max(70, comfortableMinutes * 4.2)) + 6}px)`,
-                      top: 'calc(50% - 10px)',
-                    }}
-                    className="absolute text-[10px] font-mono-code font-bold text-emerald-400 bg-slate-900/90 px-1.5 py-0.5 rounded border border-emerald-500/40 pointer-events-none whitespace-nowrap shadow-xs"
+              {/* Selected listing's REAL AMap transit route drawn on radar canvas
+                  (same px projection as candidate markers; center-anchored svg) */}
+              {(() => {
+                const segs = activeCandidate ? routeSegments[activeCandidate.id] : null;
+                if (!segs || segs.length === 0) return null;
+                const projectPt = (p: [number, number]): [number, number] => {
+                  const lngDiff = p[0] - displayCenter.lng;
+                  const latDiff = p[1] - displayCenter.lat;
+                  const cosLat = Math.cos((displayCenter.lat * Math.PI) / 180);
+                  return [lngDiff * cosLat * 3600, -latDiff * 3600];
+                };
+                return (
+                  <svg
+                    style={{ position: 'absolute', left: '50%', top: '50%', width: 1, height: 1, overflow: 'visible' }}
+                    className="pointer-events-none"
                   >
-                    🟢 舒适通勤区 (≤{comfortableMinutes}m / ~{(comfortableRadiusM / 1000).toFixed(1)}km)
-                  </div>
-
-                  <div
-                    style={{
-                      left: `calc(50% + ${Math.min(260, Math.max(120, maxCommuteMinutes * 4.2)) + 6}px)`,
-                      top: 'calc(50% + 14px)',
-                    }}
-                    className="absolute text-[10px] font-mono-code font-bold text-amber-400 bg-slate-900/90 px-1.5 py-0.5 rounded border border-amber-500/40 pointer-events-none whitespace-nowrap shadow-xs"
-                  >
-                    🟡 达标上限圈 (≤{maxCommuteMinutes}m / ~{(maxRadiusM / 1000).toFixed(1)}km)
-                  </div>
-                </>
-              )}
+                    {segs.map((seg: any, i: number) => (
+                      <polyline
+                        key={`seg-${i}`}
+                        points={seg.points.map((p: [number, number]) => projectPt(p).join(',')).join(' ')}
+                        fill="none"
+                        stroke={seg.type === 'walk' ? '#94a3b8' : '#f43f5e'}
+                        strokeWidth={seg.type === 'walk' ? 3 : 5}
+                        strokeDasharray={seg.type === 'walk' ? '6 4' : undefined}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity={0.95}
+                      />
+                    ))}
+                    {segs
+                      .filter((seg: any) => seg.type === 'bus')
+                      .flatMap((seg: any, gi: number) => [seg.points[0], seg.points[seg.points.length - 1]])
+                      .map((p: [number, number], i: number) => {
+                        const [x, y] = projectPt(p);
+                        return <circle key={`stop-${i}`} cx={x} cy={y} r={5} fill="#ffffff" stroke="#e11d48" strokeWidth={3} />;
+                      })}
+                  </svg>
+                );
+              })()}
 
               {/* Workplace Benchmark Center Pin */}
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center z-30">
-                <div className="w-5 h-5 rounded-full bg-indigo-600 ring-6 ring-indigo-500/30 flex items-center justify-center text-[10px] text-white font-bold shadow-lg animate-pulse">
-                  🏢
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow-lg ${workplaceCoords ? 'bg-indigo-600 ring-6 ring-indigo-500/30 animate-pulse' : 'bg-neutral-600 ring-6 ring-neutral-500/20'}`}>
+                  {workplaceCoords ? '🏢' : '?'}
                 </div>
                 <div className="mt-1 text-[11px] font-mono-code font-bold text-white bg-indigo-950/95 px-2 py-0.5 rounded-full border border-indigo-500/50 shadow-md whitespace-nowrap">
-                  工作地: {workplace || `${city}商圈`}
+                  {workplaceCoords ? `工作地: ${workplace || `${city}商圈`}` : '工作地未定位（仅视野中心）'}
                 </div>
               </div>
 
@@ -834,23 +799,25 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
               {visibleCandidates.map((candidate) => {
                 const isSelected = activeCandidate?.id === candidate.id;
                 // Calculate projected pixels relative to workplace
-                const latDiff = candidate.resolvedCoords.lat - workplaceCoords.lat;
-                const lngDiff = candidate.resolvedCoords.lng - workplaceCoords.lng;
-                const cosLat = Math.cos((workplaceCoords.lat * Math.PI) / 180);
+                const latDiff = candidate.resolvedCoords.lat - displayCenter.lat;
+                const lngDiff = candidate.resolvedCoords.lng - displayCenter.lng;
+                const cosLat = Math.cos((displayCenter.lat * Math.PI) / 180);
 
                 const scale = 3600;
                 const offsetX = lngDiff * cosLat * scale;
                 const offsetY = -latDiff * scale;
 
-                let tagBg = 'bg-emerald-600 border-emerald-300 text-white';
-                let tagLabel = `${candidate.commuteMin}m 舒适`;
+                let tagBg = 'bg-neutral-600 border-neutral-300 text-white';
+                let tagLabel = candidate.commuteMin != null ? `${candidate.commuteMin}m 舒适` : '路线不可用';
 
-                if (!candidate.isComfortable && candidate.isWithinLimit) {
+                if (candidate.commuteMin != null && !candidate.isComfortable && candidate.isWithinLimit) {
                   tagBg = 'bg-amber-600 border-amber-300 text-white';
                   tagLabel = `${candidate.commuteMin}m 达标`;
-                } else if (!candidate.isWithinLimit) {
+                } else if (candidate.commuteMin != null && !candidate.isWithinLimit) {
                   tagBg = 'bg-rose-600 border-rose-300 text-white';
                   tagLabel = `${candidate.commuteMin}m 超时+${candidate.overMinutes}m`;
+                } else if (candidate.commuteMin != null) {
+                  tagBg = 'bg-emerald-600 border-emerald-300 text-white';
                 }
 
                 return (
@@ -882,7 +849,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
 
                     {/* Community Title Tooltip on Hover */}
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 hidden group-hover:block bg-black/95 text-slate-200 text-[10px] px-2 py-0.5 rounded shadow-xl whitespace-nowrap z-50 pointer-events-none">
-                      {candidate.community} · 地铁步行 {candidate.walkToSubwayMin}m
+                      {candidate.community} · 地铁步行 {candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'}
                     </div>
                   </div>
                 );
@@ -945,18 +912,125 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
               <div>
                 <span className="text-slate-400 block">步行至地铁站</span>
                 <span className="font-mono-code font-bold text-slate-200">
-                  {activeCandidate.walkToSubwayMin} 分钟
+                  {activeCandidate.walkToSubwayMin != null ? `${activeCandidate.walkToSubwayMin} 分钟` : '—'}
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 block">往返全年累耗</span>
                 <span className="font-mono-code font-bold text-slate-200">
-                  {Math.round(((activeCandidate.commuteMin * 2 * 250) / 60))} 小时/年
+                  {activeCandidate.commuteMin != null
+                    ? `${annualHoursFromOneWay(activeCandidate.commuteMin, 5)} 小时/年`
+                    : '—'}
                 </span>
               </div>
             </div>
           </div>
         )}
+
+        {/* 选中房源的真实公交路线摘要 + 多房源切换对比 */}
+        {(() => {
+          const list = visibleCandidates;
+          if (list.length === 0) return null;
+          const sel = activeCandidate && list.some((c) => c.id === activeCandidate.id)
+            ? activeCandidate
+            : list[0];
+          const selIdx = list.findIndex((c) => c.id === sel.id);
+          const segs = routeSegments[sel.id] || [];
+          const mins = routeMinutes[sel.id];
+
+          const cycle = (dir: number) => {
+            const next = list[(selIdx + dir + list.length) % list.length];
+            setActiveCandidate(next);
+          };
+
+          return (
+            <div className="absolute left-2 right-2 bottom-2 z-30">
+              <div
+                className={`rounded-lg border shadow-lg backdrop-blur-sm p-3 text-[11px] ${
+                  isDark
+                    ? 'bg-neutral-900/90 border-neutral-700 text-neutral-200'
+                    : 'bg-white/95 border-neutral-200 text-neutral-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-semibold truncate">{sel.title}</span>
+                    {mins != null ? (
+                      <span className="font-mono-code font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                        {mins} min · 高德实际路线
+                      </span>
+                    ) : (
+                      <span className="font-mono-code text-rose-500 shrink-0">路线不可用</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => cycle(-1)}
+                      className="px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      title="上一套房源"
+                    >
+                      ‹
+                    </button>
+                    <span className="font-mono-code text-[10px] text-neutral-400 px-0.5">
+                      {selIdx + 1}/{list.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => cycle(1)}
+                      className="px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      title="下一套房源"
+                    >
+                      ›
+                    </button>
+                    {onOpenComparison && (
+                      <button
+                        type="button"
+                        onClick={onOpenComparison}
+                        className="ml-1 px-2 py-0.5 rounded border border-indigo-400/60 text-indigo-500 dark:text-indigo-300 hover:bg-indigo-500/10"
+                      >
+                        去对比全部房源
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {mins == null ? (
+                  <div className="text-[10px] text-neutral-400">
+                    未拿到真实路线（坐标或路线规划不可用），不提供估算值。
+                  </div>
+                ) : segs.length === 0 ? (
+                  <div className="text-[10px] text-neutral-400">
+                    公交线路详情未返回（总耗时 {mins} 分钟来自高德）。
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {segs.map((seg: any, i: number) => (
+                      <React.Fragment key={i}>
+                        {i > 0 && <span className="text-neutral-400">→</span>}
+                        <span
+                          className={`px-1.5 py-0.5 rounded font-mono-code ${
+                            seg.type === 'walk'
+                              ? 'bg-slate-500/15 text-slate-600 dark:text-slate-300'
+                              : 'bg-rose-500/15 text-rose-600 dark:text-rose-300 font-semibold'
+                          }`}
+                        >
+                          {seg.type === 'walk'
+                            ? `🚶 步行 ${seg.minutes}分钟`
+                            : `🚇 ${seg.lineName} ${seg.minutes}分钟（${seg.boardingStop}→${seg.alightingStop}）`}
+                        </span>
+                      </React.Fragment>
+                    ))}
+                    <span className="text-neutral-400 font-mono-code ml-1">
+                      换乘 {Math.max(0, segs.filter((s: any) => s.type === 'bus').length - 1)} 次 · 步行合计{' '}
+                      {segs.filter((s: any) => s.type === 'walk').reduce((a: number, s: any) => a + (s.minutes || 0), 0)} 分钟
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Footer Legend Explanations */}
@@ -967,27 +1041,18 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
       >
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-emerald-500 border border-emerald-300" />
-            <span className="font-medium text-emerald-700 dark:text-emerald-400">
-              舒适通勤圈 (≤{comfortableMinutes}m)
-            </span>
+            <span className="w-6 h-0 rounded-none" style={{ borderTop: '3px dashed #94a3b8' }} />
+            <span className="font-medium text-slate-600 dark:text-slate-300">步行段（虚线）</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-amber-500 border border-amber-300" />
-            <span className="font-medium text-amber-700 dark:text-amber-400">
-              达标上限圈 (≤{maxCommuteMinutes}m)
-            </span>
+            <span className="w-6 h-0.5 bg-rose-500 rounded" />
+            <span className="font-medium text-rose-600 dark:text-rose-400">公交/地铁段（实线）</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-rose-500 border border-rose-300" />
-            <span className="font-medium text-rose-700 dark:text-rose-400">
-              超时疲劳区 (&gt;{maxCommuteMinutes}m)
-            </span>
-          </div>
+          <span className="font-mono-code text-[10px]">路线来自高德实时公交规划 · 点击房源圆点切换路线</span>
         </div>
 
         <div className="text-[10px] font-mono-code text-neutral-400">
-          *根据设定通勤时间与出行方式实时生成等时覆盖半径，支持拖拽平移与点击房源联动
+          *地图上展示的是选中房源到工作地的真实公交/地铁线路与步行段，无半径模拟；拿不到真实路线时显示不可用
         </div>
       </div>
     </div>

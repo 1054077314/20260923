@@ -1,6 +1,7 @@
 import { RentalPlan, PlanTemplate } from '../types/rental';
 import { PRESET_TEMPLATES } from '../data/defaultTemplates';
 import { calculateStartupFund, calculateCandidateMonthlyTotal, calculateWeightedScore } from './calculations';
+import { rebaselinePlanDates } from './countdownUtils';
 
 const STORAGE_KEY_PLANS = 'rentplan_user_plans_v1';
 const STORAGE_KEY_ACTIVE_ID = 'rentplan_active_id_v1';
@@ -8,17 +9,20 @@ const STORAGE_KEY_CUSTOM_TEMPLATES = 'rentplan_custom_templates_v1';
 
 export function initializeDefaultPlans(): RentalPlan[] {
   const now = new Date().toISOString();
-  return PRESET_TEMPLATES.map((tmpl, idx) => ({
-    ...tmpl.defaultData,
-    id: `plan-preset-${tmpl.id}`,
-    createdAt: now,
-    updatedAt: now,
-    isTemplate: false,
-    candidates: tmpl.defaultData.candidates.map((c) => ({
-      ...c,
-      weightedScore: calculateWeightedScore(c.ratings, tmpl.defaultData.weights),
-    })),
-  }));
+  return PRESET_TEMPLATES.map((tmpl, idx) => {
+    const base = rebaselinePlanDates(tmpl.defaultData);
+    return {
+      ...base,
+      id: `plan-preset-${tmpl.id}`,
+      createdAt: now,
+      updatedAt: now,
+      isTemplate: false,
+      candidates: base.candidates.map((c) => ({
+        ...c,
+        weightedScore: calculateWeightedScore(c.ratings, base.weights),
+      })),
+    };
+  });
 }
 
 export function getStoredPlans(): RentalPlan[] {
@@ -136,7 +140,7 @@ export function exportPlanToMarkdown(plan: RentalPlan): string {
 - **小区/地址**：${c.community} (${c.address || '无详细地址'})
 - **月租金**：¥${c.rent} / 月 (杂费合计后综合月支出: ¥${monthlyTotal}/月)
 - **通勤表现**：近 ${c.subwayStation}，步行 ${c.walkToSubwayMin} 分钟，单程耗时约 ${c.commuteMinutes} 分钟
-- **房屋属性**：${c.areaSqMeters}㎡ ｜ ${c.floor} ｜ ${c.utilitiesType === 'residential' ? '民水民电' : '商水商电'} ｜ ${c.depositTerms}
+- **房屋属性**：${c.areaSqMeters}㎡ ｜ ${c.floor} ｜ ${c.utilitiesType === 'residential' ? '民水民电' : c.utilitiesType === 'commercial' ? '商水商电' : '水电待核实'} ｜ ${c.depositTerms}
 - **优势亮点**：${c.pros.join('、') || '无'}
 - **潜在不足**：${c.cons.join('、') || '无'}
 - **实地看房状态**：${c.inspectionStatus} ${c.inspectionDate ? `(${c.inspectionDate})` : ''}

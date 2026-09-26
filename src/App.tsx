@@ -13,6 +13,7 @@ import {
   deleteCustomTemplate,
 } from './utils/storage';
 import { PRESET_TEMPLATES } from './data/defaultTemplates';
+import { rebaselinePlanDates } from './utils/countdownUtils';
 import { Navbar, NavTabKey } from './components/Navbar';
 import { BudgetModule } from './components/BudgetModule';
 import { CommuteModule } from './components/CommuteModule';
@@ -181,14 +182,15 @@ export default function App() {
   ) => {
     const matchedTemplate =
       PRESET_TEMPLATES.find((t) => t.id === templateId) || PRESET_TEMPLATES[0];
+    const templateData = rebaselinePlanDates(matchedTemplate.defaultData);
 
     const now = new Date().toISOString();
     const newPlan: RentalPlan = {
-      ...matchedTemplate.defaultData,
+      ...templateData,
       id: `plan-${Date.now()}`,
       name,
-      city: city || matchedTemplate.defaultData.city,
-      targetDate: targetDate || matchedTemplate.defaultData.targetDate,
+      city: city || templateData.city,
+      targetDate: targetDate || templateData.targetDate,
       status: 'planning',
       createdAt: now,
       updatedAt: now,
@@ -203,8 +205,9 @@ export default function App() {
 
   const handleApplyTemplate = (template: PlanTemplate) => {
     const now = new Date().toISOString();
+    const templateData = rebaselinePlanDates(template.defaultData);
     const newPlan: RentalPlan = {
-      ...template.defaultData,
+      ...templateData,
       id: `plan-${Date.now()}`,
       name: `${template.name} (应用方案)`,
       status: 'planning',
