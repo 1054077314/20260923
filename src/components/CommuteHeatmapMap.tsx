@@ -46,6 +46,7 @@ interface CommuteHeatmapMapProps {
   workplaceState: { status: 'loading' | 'ok' | 'unavailable'; coord?: LatLng; reason?: string };
   routeMinutes?: Record<string, number | null | undefined>;
   routeSegments?: Record<string, any[] | undefined>;
+  routesPending?: boolean;
   onOpenComparison?: () => void;
 }
 
@@ -64,6 +65,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   workplaceState = { status: 'loading' },
   routeMinutes = {},
   routeSegments = {},
+  routesPending = false,
   onOpenComparison,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -497,8 +499,14 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
             <div className="text-[11px] opacity-80 flex items-center gap-1.5 mt-0.5 flex-wrap">
               <span className="font-semibold text-rose-500 font-mono-code">📍 {city || '乌鲁木齐'}</span>
               <span>· <strong className="text-indigo-500">🏢 {workplace || `${city || '乌鲁木齐'}核心区`}</strong></span>
-              <span>· 达标房源: <strong>{stats.withinCount}/{stats.total}</strong> 套（仅计真实路线）</span>
-              <span>· 候选均时: <strong>{stats.avgMinutes || '—'}</strong> 分钟</span>
+              {routesPending ? (
+                <span>· <strong className="text-indigo-500 animate-pulse">真实路线测算中…</strong>（首次约 1-2 分钟，随后走缓存秒出）</span>
+              ) : (
+                <>
+                  <span>· 达标房源: <strong>{stats.withinCount}/{stats.total}</strong> 套（仅计真实路线）</span>
+                  <span>· 候选均时: <strong>{stats.avgMinutes || '—'}</strong> 分钟</span>
+                </>
+              )}
               {noCoordCount > 0 && <span>· 无真实坐标 {noCoordCount} 套未上图</span>}
             </div>
           </div>

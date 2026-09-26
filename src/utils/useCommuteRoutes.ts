@@ -119,7 +119,12 @@ export function useCommuteRoutes(params: {
         };
       });
 
-      // 3. 一次提交，分片上限 200（与服务端 slice 对齐）
+      // 3. 一次提交，分片上限 200（与服务端 slice 对齐）。
+      // 批量在途先全部标记 loading：首次现算约 1-2 分钟，界面显示「测算中」而不是误导性的 0
+      const pending: Record<string, RouteInfo> = {};
+      for (const c of candidates) pending[c.id] = { state: 'loading' };
+      setRouteInfo(pending);
+
       const next: Record<string, RouteInfo> = {};
       try {
         for (let i = 0; i < items.length; i += 200) {

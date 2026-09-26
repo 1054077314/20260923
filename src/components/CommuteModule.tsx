@@ -178,6 +178,7 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
             transitMode={transitMode}
             onTransitModeChange={setTransitMode}
             workplaceState={workplaceState}
+            routesPending={routesPending}
             routeMinutes={Object.fromEntries(candidateStats.map((s) => [s.id, s.oneWayMin]))}
             routeSegments={Object.fromEntries(
               candidateStats.filter((s) => s.routeState === 'ok').map((s) => [s.id, (s as any).segments as any[] | undefined])
