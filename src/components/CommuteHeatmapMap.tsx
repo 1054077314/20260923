@@ -30,6 +30,7 @@ import {
   EnrichedCommuteCandidate,
   annualHoursFromOneWay,
   enrichListingsForMap,
+  getWalkToStation,
 } from '../utils/commuteStats';
 
 interface CommuteHeatmapMapProps {
@@ -679,7 +680,12 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
 
                     {/* Community Title Tooltip on Hover */}
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 hidden group-hover:block bg-black/95 text-slate-200 text-[10px] px-2 py-0.5 rounded shadow-xl whitespace-nowrap z-50 pointer-events-none">
-                      {candidate.community} · 地铁步行 {candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'}
+                      {(() => {
+                        const ws = getWalkToStation(candidate.segments);
+                        const walk = ws ? `${ws.walkMin}分` : candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—';
+                        const station = ws ? `至 ${ws.station}` : '';
+                        return `${candidate.community} · 步行${walk}${station}`;
+                      })()}
                     </div>
                   </div>
                 );
@@ -754,9 +760,15 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block">步行至地铁站</span>
+                <span className="text-slate-400 block">步行至首乘站</span>
                 <span className="font-mono-code font-bold text-slate-200">
-                  {activeCandidate.walkToSubwayMin != null ? `${activeCandidate.walkToSubwayMin} 分钟` : '—'}
+                  {(() => {
+                    const ws = getWalkToStation(routeSegments[activeCandidate.id]);
+                    if (ws) return `${ws.walkMin} 分钟 · ${ws.station}`;
+                    if (activeCandidate.walkToSubwayMin != null)
+                      return `${activeCandidate.walkToSubwayMin} 分钟`;
+                    return activeCandidate.commuteMin != null ? '路线无步行段' : '—';
+                  })()}
                 </span>
               </div>
               <div>

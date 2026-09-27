@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RentalPlan } from '../types/rental';
 import { CommuteHeatmapMap } from './CommuteHeatmapMap';
 import type { TransitMode } from '../utils/mapUtils';
-import { computeCommuteStats } from '../utils/commuteStats';
+import { computeCommuteStats, getWalkToStation } from '../utils/commuteStats';
 import { useCandidatePool } from '../utils/useCandidatePool';
 import { useCommuteRoutes } from '../utils/useCommuteRoutes';
 import { Flame, MapPin, ExternalLink } from 'lucide-react';
@@ -660,7 +660,12 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                             isDark ? 'text-neutral-300' : 'text-neutral-800'
                           }`}
                         >
-                          {item.walkMin != null ? item.walkMin + ' 分钟' : '—'}
+                          {(() => {
+                            const ws = getWalkToStation(item.segments);
+                            if (ws) return `${ws.walkMin} 分钟 · ${ws.station}`;
+                            if (item.walkMin != null) return item.walkMin + ' 分钟';
+                            return item.routeState === 'ok' ? '起点即车站' : '—';
+                          })()}
                         </span>
                       </div>
                       <div>

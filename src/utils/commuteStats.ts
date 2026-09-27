@@ -42,6 +42,26 @@ export function getRouteMinutes(
   return route?.state === 'ok' && typeof route.minutes === 'number' ? route.minutes : null;
 }
 
+/**
+ * 从真实路线段明细提取「步行至首乘站」：首段步行分钟数 + 真实上车站名。
+ * 数据来自高德实际路线规划（不是快照字段，也不是估算）；
+ * 起点即车站时步行为 0；无路线/无上车站信息返回 null。
+ */
+export function getWalkToStation(
+  segs: any[] | null | undefined
+): { walkMin: number; station: string } | null {
+  if (!segs || segs.length === 0) return null;
+  const first = segs[0];
+  if (first.type === 'walk') {
+    const station = segs[1]?.boardingStop;
+    if (!station) return null;
+    return { walkMin: first.minutes || 0, station };
+  }
+  const station = first?.boardingStop;
+  if (!station) return null;
+  return { walkMin: 0, station };
+}
+
 export interface CommuteStatsOptions {
   workDaysPerWeek: number;
   farePerTrip: number;

@@ -19,6 +19,7 @@ import {
 } from '../utils/candidateFilter';
 import { mergeImportedCandidates } from '../utils/listingPipeline';
 import { useCommuteRoutes } from '../utils/useCommuteRoutes';
+import { getWalkToStation } from '../utils/commuteStats';
 import { NeighborhoodSearchModal } from './NeighborhoodSearchModal';
 import { PropertySourcesModal } from './PropertySourcesModal';
 import { LiveListingScraperModal } from './LiveListingScraperModal';
@@ -1115,7 +1116,14 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                           : candidate.commuteMinutes != null
                           ? '手动录入值'
                           : '高德路线不可用'}
-                        {' · '}步行{candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'} 至 {candidate.subwayStation || '地铁站'}
+                        {' · '}
+                        {(() => {
+                          const ws = getWalkToStation(routeInfo[candidate.id]?.segments);
+                          if (ws) return `步行${ws.walkMin}分钟 至 ${ws.station}`;
+                          if (candidate.walkToSubwayMin != null)
+                            return `步行${candidate.walkToSubwayMin}m 至 ${candidate.subwayStation || '地铁站'}`;
+                          return routeMinutes[candidate.id] != null ? '起点即车站' : '步行至站点待实测';
+                        })()}
                       </span>
                     </div>
                   </div>
