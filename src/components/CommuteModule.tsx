@@ -5,7 +5,7 @@ import type { TransitMode } from '../utils/mapUtils';
 import { computeCommuteStats } from '../utils/commuteStats';
 import { useCandidatePool } from '../utils/useCandidatePool';
 import { useCommuteRoutes } from '../utils/useCommuteRoutes';
-import { Flame, MapPin } from 'lucide-react';
+import { Flame, MapPin, ExternalLink } from 'lucide-react';
 
 interface CommuteModuleProps {
   plan: RentalPlan;
@@ -545,6 +545,19 @@ export const CommuteModule: React.FC<CommuteModuleProps> = ({
                           >
                             {item.title}
                           </span>
+                          {item.sourceUrl && (
+                            <a
+                              href={item.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`shrink-0 p-0.5 rounded transition-colors ${
+                                isDark ? 'text-neutral-500 hover:text-emerald-300' : 'text-neutral-400 hover:text-emerald-600'
+                              }`}
+                              title={`打开原始挂牌页（${item.sourcePlatform || '来源平台'}）`}
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                           {isFastest && (
                             <span
                               className={`font-mono-code text-[10px] px-1.5 py-0.5 rounded border ${

@@ -1203,6 +1203,22 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-1">
+                    {candidate.sourceUrl && (
+                      <a
+                        href={candidate.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`p-1 rounded transition-colors flex items-center gap-1 text-[11px] font-mono-code ${
+                          isDark
+                            ? 'text-neutral-400 hover:text-emerald-300'
+                            : 'text-neutral-400 hover:text-emerald-600'
+                        }`}
+                        title={`打开原始挂牌页（${candidate.sourcePlatform || '来源平台'}）`}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
+                        <span className="hidden sm:inline">直达</span>
+                      </a>
+                    )}
                     <button
                       onClick={() => handleOpenEditModal(candidate)}
                       className={`p-1 rounded transition-colors ${

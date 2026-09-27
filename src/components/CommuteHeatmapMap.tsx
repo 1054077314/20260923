@@ -24,6 +24,7 @@ import {
   Car,
   Eye,
   EyeOff,
+  ExternalLink,
 } from 'lucide-react';
 import {
   EnrichedCommuteCandidate,
@@ -716,11 +717,25 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                 </div>
               </div>
 
-              <div className="text-right shrink-0">
-                <div className="text-base font-bold font-mono-code text-rose-400">
-                  ¥{activeCandidate.rent}
+              <div className="text-right shrink-0 flex items-center gap-1.5">
+                {activeCandidate.sourceUrl && (
+                  <a
+                    href={activeCandidate.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-600 flex items-center gap-1 text-[10px] font-mono-code"
+                    title={`打开原始挂牌页（${activeCandidate.sourcePlatform || '来源平台'}）`}
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    直达
+                  </a>
+                )}
+                <div>
+                  <div className="text-base font-bold font-mono-code text-rose-400">
+                    ¥{activeCandidate.rent}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono-code">/月</div>
                 </div>
-                <div className="text-[10px] text-slate-400 font-mono-code">/月</div>
               </div>
             </div>
 
@@ -820,6 +835,18 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                       >
                         去对比全部房源
                       </button>
+                    )}
+                    {sel.sourceUrl && (
+                      <a
+                        href={sel.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-1 px-2 py-0.5 rounded border border-emerald-400/60 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/10 flex items-center gap-1"
+                        title={`打开原始挂牌页（${sel.sourcePlatform || '来源平台'}）`}
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        直达房源
+                      </a>
                     )}
                   </div>
                 </div>

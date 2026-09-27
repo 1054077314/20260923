@@ -477,11 +477,25 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
                 </div>
               </div>
 
-              <div className="text-right shrink-0">
-                <div className="text-sm font-bold font-mono-code text-rose-400">
-                  ¥{activeProperty.rent}
+              <div className="text-right shrink-0 flex items-center gap-1.5">
+                {activeProperty.sourceUrl && (
+                  <a
+                    href={activeProperty.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-600 flex items-center gap-1 text-[10px] font-mono-code"
+                    title={`打开原始挂牌页（${activeProperty.sourcePlatform || '来源平台'}）`}
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    直达
+                  </a>
+                )}
+                <div>
+                  <div className="text-sm font-bold font-mono-code text-rose-400">
+                    ¥{activeProperty.rent}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono-code">/月</div>
                 </div>
-                <div className="text-[10px] text-slate-400 font-mono-code">/月</div>
               </div>
             </div>
 
