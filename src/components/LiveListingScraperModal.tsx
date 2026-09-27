@@ -19,6 +19,7 @@ import {
 import { CandidateProperty } from '../types/rental';
 import {
   Raw58Listing,
+  isWithinRoomLimit,
   rawListingKey,
   raw58ToCandidate,
 } from '../utils/listingPipeline';
@@ -106,7 +107,10 @@ export const LiveListingScraperModal: React.FC<LiveListingScraperModalProps> = (
 
       setListings(result.listings);
       setSearchSources(result.sources);
-      setSelectedIds(new Set(result.listings.map((l) => rawListingKey(l))));
+      // >3室默认不勾选（用户硬性约束），仍展示以保持透明
+      setSelectedIds(
+        new Set(result.listings.filter((l) => isWithinRoomLimit(l.roomType, l.title)).map((l) => rawListingKey(l)))
+      );
       setFreshness(result.dataSource);
     } catch (err: any) {
       console.error('Fetch listings error:', err);
@@ -187,10 +191,11 @@ export const LiveListingScraperModal: React.FC<LiveListingScraperModalProps> = (
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === listings.length) {
+    const selectable = listings.filter((l) => isWithinRoomLimit(l.roomType, l.title));
+    if (selectedIds.size >= selectable.length && listings.every((l) => !isWithinRoomLimit(l.roomType, l.title) || selectedIds.has(rawListingKey(l)))) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(listings.map((l) => rawListingKey(l))));
+      setSelectedIds(new Set(selectable.map((l) => rawListingKey(l))));
     }
   };
 
@@ -201,12 +206,23 @@ export const LiveListingScraperModal: React.FC<LiveListingScraperModalProps> = (
       return;
     }
 
+    // 硬性约束：>3室自动跳过，不进候选清单
+    const roomFiltered = toImport.filter((l) => isWithinRoomLimit(l.roomType, l.title));
+    const roomSkipped = toImport.length - roomFiltered.length;
+
     // 统一走 Raw58Listing → CandidateProperty 转换：抓取结果里没有的字段一律留空，
     // 打分保持未评（0 分）、配套与杂费不臆造，由用户在房源对比中自行录入
-    const converted: CandidateProperty[] = toImport.map((item) =>
+    const converted: CandidateProperty[] = roomFiltered.map((item) =>
       raw58ToCandidate(item, { idPrefix: 'cand-' })
     );
 
+    if (roomSkipped > 0) {
+      alert(`已自动跳过 ${roomSkipped} 套超过 3 室的房源（不符合筛选要求）`);
+    }
+    if (converted.length === 0) {
+      alert(roomSkipped > 0 ? '勾选的房源全部超过 3 室，未导入任何房源。' : '请至少勾选一套房源以导入对比清单');
+      return;
+    }
     onBatchImport(converted);
     onClose();
   };

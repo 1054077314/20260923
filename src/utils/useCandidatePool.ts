@@ -6,7 +6,11 @@
 
 import { useEffect, useState } from 'react';
 import { CandidateProperty } from '../types/rental';
-import { buildCandidatePool, raw58ToCandidate } from './listingPipeline';
+import {
+  buildCandidatePool,
+  isWithinRoomLimit,
+  raw58ToCandidate,
+} from './listingPipeline';
 import { fetchSnapshotListings } from './listingSources';
 
 export interface CandidatePoolState {
@@ -43,7 +47,9 @@ export function useCandidatePool(params: {
         setLoading(false);
         return;
       }
-      setSnapshotListings(result.listings.map((l) => raw58ToCandidate(l, { idPrefix: 'snap-' })));
+      // 硬性约束：超过 3 室的房源不进池（在 Raw→Candidate 转换前过滤，roomType 只在原始条目上）
+      const roomOk = result.listings.filter((l) => isWithinRoomLimit(l.roomType, l.title));
+      setSnapshotListings(roomOk.map((l) => raw58ToCandidate(l, { idPrefix: 'snap-' })));
       setSnapshotMeta(result.dataSource);
       setLoading(false);
     };

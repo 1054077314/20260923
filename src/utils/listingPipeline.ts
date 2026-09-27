@@ -162,6 +162,28 @@ export function raw58ToCandidate(
   };
 }
 
+const CN_ROOM_NUM: Record<string, number> = {
+  一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+};
+
+/** 从 roomType（如「主卧(5室)」）或标题（如「3室1厅」）解析室数；解析不出返回 null */
+export function parseRoomCount(item: { roomType?: string | null; title?: string | null }): number | null {
+  const sources = [item.roomType || '', item.title || ''];
+  for (const text of sources) {
+    const m = text.match(/([1-9一二两三四五六七八九])\s*室/);
+    if (m) return CN_ROOM_NUM[m[1]] ?? Number(m[1]);
+  }
+  return null;
+}
+
+/** 用户硬性约束：超过 3 室的房源一律不进候选池（4室及以上整租/合租都超需求） */
+export const MAX_ROOM_COUNT = 3;
+
+export function isWithinRoomLimit(roomType: string | null | undefined, title: string | null | undefined): boolean {
+  const n = parseRoomCount({ roomType, title });
+  return n == null || n <= MAX_ROOM_COUNT;
+}
+
 /** 预算筛选：无上限时全部通过 */
 export function isWithinBudget(rent: number, maxMonthlyRent: number): boolean {
   return !maxMonthlyRent || rent <= maxMonthlyRent;
