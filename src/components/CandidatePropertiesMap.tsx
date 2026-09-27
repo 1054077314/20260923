@@ -3,6 +3,7 @@ import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
   getExplicitCoordinates,
+  loadAmapSdk,
   LatLng,
 } from '../utils/mapUtils';
 import {
@@ -42,6 +43,13 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
   className = '',
   onCloseMap,
 }) => {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const amapMapRef = useRef<any>(null);
+  const amapMarkersRef = useRef<any[]>([]);
+
+  const [mapEngine, setMapEngine] = useState<'amap' | 'radar'>('amap');
+  const [amapStatus, setAmapStatus] = useState<'loading' | 'ok' | 'failed'>('loading');
+  const [amapNotice, setAmapNotice] = useState('');
   const [activeProperty, setActiveProperty] = useState<CandidateProperty | null>(null);
   const [radarZoom, setRadarZoom] = useState(1);
   const [radarPan, setRadarPan] = useState({ x: 0, y: 0 });
@@ -66,20 +74,120 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
       const found = candidatesWithCoords.find((c) => c.id === selectedCandidateId);
       if (found) {
         setActiveProperty(found);
+        if (mapEngine === 'amap' && amapMapRef.current) {
+          amapMapRef.current.setCenter([found.resolvedCoords.lng, found.resolvedCoords.lat]);
+        }
       }
     }
-  }, [selectedCandidateId, candidatesWithCoords]);
+  }, [selectedCandidateId, candidatesWithCoords, mapEngine]);
+
+  // 高德底图初始化：失败自动回落雷达拓扑视图
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initAmap() {
+      if (!mapContainerRef.current) return;
+      try {
+        const res = await fetch('/api/amap-js-key').then((r) => r.json());
+        const key = res?.key;
+        if (!key) throw new Error('服务端未配置 AMAP_KEY');
+        await loadAmapSdk(key, 8000);
+        if (cancelled || !mapContainerRef.current) return;
+        const AMap = (window as any).AMap;
+        if (!AMap?.Map) throw new Error('高德 JS API 未就绪');
+
+        if (!amapMapRef.current) {
+          const map = new AMap.Map(mapContainerRef.current, {
+            center: [cityCenter.lng, cityCenter.lat],
+            zoom: 12,
+            mapStyle: isDark ? 'amap://styles/grey' : 'amap://styles/normal',
+            viewMode: '2D',
+          });
+          amapMapRef.current = map;
+        } else {
+          amapMapRef.current.setCenter([cityCenter.lng, cityCenter.lat]);
+        }
+        setAmapStatus('ok');
+        setMapEngine('amap');
+      } catch (err: any) {
+        if (!cancelled) {
+          console.warn('高德底图不可用，回落雷达拓扑:', err?.message);
+          setAmapStatus('failed');
+          setAmapNotice(err?.message || '高德底图不可用');
+          setMapEngine('radar');
+        }
+      }
+    }
+
+    initAmap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cityCenter.lng, cityCenter.lat, isDark]);
+
+  // 高德底图标记：候选价格气泡
+  useEffect(() => {
+    if (mapEngine !== 'amap' || amapStatus !== 'ok') return;
+    const AMap = (window as any).AMap;
+    const map = amapMapRef.current;
+    if (!AMap?.Marker || !map) return;
+
+    amapMarkersRef.current.forEach((m) => map.remove(m));
+    amapMarkersRef.current = [];
+
+    const esc = (s: any) =>
+      String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+    candidatesWithCoords.forEach((candidate) => {
+      const isSelected = selectedCandidateId === candidate.id;
+      const marker = new AMap.Marker({
+        position: [candidate.resolvedCoords.lng, candidate.resolvedCoords.lat],
+        anchor: 'bottom-center',
+        zIndex: isSelected ? 40 : 20,
+        content: `
+          <div style="
+            display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:9999px;
+            font-family:monospace;font-size:11px;font-weight:700;white-space:nowrap;
+            box-shadow:0 4px 12px rgba(0,0,0,0.18);
+            border:2px solid ${isSelected ? '#6366f1' : '#ffffff'};
+            background-color:${isSelected ? '#4f46e5' : '#0f172a'};color:#ffffff;cursor:pointer;
+          ">
+            <span>¥${candidate.rent}</span>
+            <span style="font-size:9px;opacity:0.85;padding:1px 4px;border-radius:4px;background-color:rgba(255,255,255,0.2)">${
+              candidate.walkToSubwayMin != null ? candidate.walkToSubwayMin + 'm' : '—'
+            }</span>
+          </div>`,
+      });
+      marker.on('click', () => {
+        setActiveProperty(candidate);
+        if (onSelectCandidate) onSelectCandidate(candidate.id);
+      });
+      amapMarkersRef.current.push(marker);
+    });
+
+    map.add(amapMarkersRef.current);
+  }, [mapEngine, amapStatus, candidatesWithCoords, selectedCandidateId, onSelectCandidate]);
 
   const handleResetToCity = () => {
-    setRadarPan({ x: 0, y: 0 });
-    setRadarZoom(1);
+    if (mapEngine === 'amap' && amapMapRef.current) {
+      amapMapRef.current.setCenter([cityCenter.lng, cityCenter.lat]);
+      amapMapRef.current.setZoom(12);
+    } else {
+      setRadarPan({ x: 0, y: 0 });
+      setRadarZoom(1);
+    }
     setActiveProperty(null);
   };
 
   const handleFitAllCandidates = () => {
     if (candidatesWithCoords.length === 0) return;
-    setRadarPan({ x: 0, y: 0 });
-    setRadarZoom(1);
+    if (mapEngine === 'amap' && amapMapRef.current && amapMarkersRef.current.length > 0) {
+      amapMapRef.current.setFitView(amapMarkersRef.current, false, [40, 40, 40, 40]);
+    } else {
+      setRadarPan({ x: 0, y: 0 });
+      setRadarZoom(1);
+    }
   };
 
   // Drag handlers for Radar Map
@@ -134,7 +242,44 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5">
-          <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
+          {/* Engine Switcher */}
+          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 p-0.5 bg-neutral-100/80 dark:bg-neutral-800/80 text-[10px] font-mono-code mr-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMapEngine('amap');
+                if (amapStatus === 'failed') {
+                  setAmapStatus('loading');
+                  setAmapNotice('');
+                }
+              }}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'amap'
+                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="高德地图实景底图"
+            >
+              <Layers className="w-3 h-3" />
+              <span>高德地图</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapEngine('radar')}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'radar'
+                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="本地动态空间雷达拓扑（离线兜底）"
+            >
+              <Compass className="w-3 h-3" />
+              <span>空间雷达拓扑</span>
+            </button>
+          </div>
+
+          {mapEngine === 'radar' && (
+            <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
             <button
               type="button"
               onClick={() => setRadarZoom((z) => Math.min(2.5, z + 0.2))}
@@ -152,6 +297,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
           </div>
+          )}
 
           <button
             type="button"
@@ -187,14 +333,38 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
         </div>
       </div>
 
+      {/* AMap Failure Notice Banner */}
+      {mapEngine === 'radar' && amapNotice && (
+        <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>高德底图不可用（{amapNotice}），已切换至空间雷达拓扑</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAmapNotice('')}
+            className="hover:opacity-75 font-mono-code text-[11px] underline ml-2 cursor-pointer"
+          >
+            忽略
+          </button>
+        </div>
+      )}
+
       {/* Map Container Viewport */}
       <div
         className="relative flex-1 min-h-[380px] sm:min-h-[440px] w-full bg-slate-950 overflow-hidden select-none"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        onMouseDown={mapEngine === 'radar' ? handleMouseDown : undefined}
+        onMouseMove={mapEngine === 'radar' ? handleMouseMove : undefined}
+        onMouseUp={mapEngine === 'radar' ? handleMouseUp : undefined}
       >
+        {/* AMap Basemap Container */}
+        <div
+          ref={mapContainerRef}
+          className={`absolute inset-0 w-full h-full ${mapEngine === 'amap' ? 'block' : 'hidden'}`}
+        />
+
         {/* Interactive Geospatial Radar Canvas Engine */}
+        {mapEngine === 'radar' && (
         <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
           {/* Grid Lines & Concentric Radar Rings */}
           <div
@@ -292,6 +462,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
             })}
           </div>
         </div>
+        )}
 
         {/* Selected Property Bottom Floating Card */}
         {activeProperty && (

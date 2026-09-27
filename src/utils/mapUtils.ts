@@ -56,6 +56,56 @@ export function getExplicitCoordinates(cand: {
 
 export type TransitMode = 'subway' | 'bike' | 'car';
 
+let amapLoaderPromise: Promise<void> | null = null;
+
+/**
+ * 动态加载高德 JS API（1.4.15，无需安全密钥）。
+ * 失败/超时 reject，由调用方回落雷达视图；同一会话只加载一次。
+ */
+export function loadAmapSdk(apiKey: string, timeoutMs = 8000): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  if ((window as any).AMap?.Map) return Promise.resolve();
+  if (amapLoaderPromise) return amapLoaderPromise;
+
+  amapLoaderPromise = new Promise<void>((resolve, reject) => {
+    const callbackName = `__amapInit_${Date.now()}`;
+    let timer: any = null;
+
+    (window as any)[callbackName] = () => {
+      clearTimeout(timer);
+      delete (window as any)[callbackName];
+      if ((window as any).AMap?.Map) {
+        resolve();
+      } else {
+        amapLoaderPromise = null;
+        reject(new Error('高德 JS API 加载后不可用'));
+      }
+    };
+
+    timer = setTimeout(() => {
+      delete (window as any)[callbackName];
+      amapLoaderPromise = null;
+      reject(new Error('高德 JS API 加载超时'));
+    }, timeoutMs);
+
+    const script = document.createElement('script');
+    script.src = `https://webapi.amap.com/maps?v=1.4.15&key=${encodeURIComponent(
+      apiKey
+    )}&callback=${callbackName}`;
+    script.async = true;
+    script.onerror = () => {
+      clearTimeout(timer);
+      delete (window as any)[callbackName];
+      amapLoaderPromise = null;
+      reject(new Error('高德 JS API 脚本加载失败'));
+    };
+
+    document.head.appendChild(script);
+  });
+
+  return amapLoaderPromise;
+}
+
 /**
  * Calculate approximate commute reach radius in meters based on transit mode and minutes
  */

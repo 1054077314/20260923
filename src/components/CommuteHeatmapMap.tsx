@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
+  loadAmapSdk,
   TransitMode,
   LatLng,
 } from '../utils/mapUtils';
@@ -65,6 +66,13 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   routesPending = false,
   onOpenComparison,
 }) => {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const amapMapRef = useRef<any>(null);
+  const amapOverlaysRef = useRef<any[]>([]);
+
+  const [mapEngine, setMapEngine] = useState<'amap' | 'radar'>('amap');
+  const [amapStatus, setAmapStatus] = useState<'loading' | 'ok' | 'failed'>('loading');
+  const [amapNotice, setAmapNotice] = useState('');
   const setTransitMode = onTransitModeChange;
   const [showHeatOverlay, setShowHeatOverlay] = useState(true);
   const [onlyShowWithinLimit, setOnlyShowWithinLimit] = useState(false);
@@ -105,16 +113,159 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleCandidates.length]);
 
+  // 高德底图初始化：key 类型不符 / 网络受限时自动回落雷达等时圈
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initAmap() {
+      if (!mapContainerRef.current) return;
+      try {
+        const res = await fetch('/api/amap-js-key').then((r) => r.json());
+        const key = res?.key;
+        if (!key) throw new Error('服务端未配置 AMAP_KEY');
+        await loadAmapSdk(key, 8000);
+        if (cancelled || !mapContainerRef.current) return;
+        const AMap = (window as any).AMap;
+        if (!AMap?.Map) throw new Error('高德 JS API 未就绪');
+
+        if (!amapMapRef.current) {
+          const map = new AMap.Map(mapContainerRef.current, {
+            center: [displayCenter.lng, displayCenter.lat],
+            zoom: 12,
+            mapStyle: isDark ? 'amap://styles/grey' : 'amap://styles/normal',
+            viewMode: '2D',
+          });
+          amapMapRef.current = map;
+        } else {
+          amapMapRef.current.setCenter([displayCenter.lng, displayCenter.lat]);
+        }
+        setAmapStatus('ok');
+        setMapEngine('amap');
+      } catch (err: any) {
+        if (!cancelled) {
+          console.warn('高德底图不可用，回落雷达等时圈:', err?.message);
+          setAmapStatus('failed');
+          setAmapNotice(err?.message || '高德底图不可用');
+          setMapEngine('radar');
+        }
+      }
+    }
+
+    initAmap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [displayCenter.lng, displayCenter.lat, isDark]);
+
+  // 价格标签配色：与雷达视图同一套通勤分档
+  const pillStyle = (c: EnrichedCandidate, isSelected: boolean) => {
+    let bg = '#6b7280';
+    let tag = c.commuteMin != null ? `${c.commuteMin}m 舒适` : '路线不可用';
+    if (c.commuteMin != null && !c.isComfortable && c.isWithinLimit) {
+      bg = '#f59e0b';
+      tag = `${c.commuteMin}m 达标`;
+    } else if (c.commuteMin != null && !c.isWithinLimit) {
+      bg = '#f43f5e';
+      tag = `${c.commuteMin}m 超时+${c.overMinutes}m`;
+    } else if (c.commuteMin != null) {
+      bg = '#10b981';
+    }
+    return { bg, tag, border: isSelected ? '#ffffff' : 'rgba(255,255,255,0.85)' };
+  };
+
+  // 高德底图覆盖物：候选价格标签 + 工作地标 + 选中房源真实路线折线
+  useEffect(() => {
+    if (mapEngine !== 'amap' || amapStatus !== 'ok') return;
+    const AMap = (window as any).AMap;
+    const map = amapMapRef.current;
+    if (!AMap?.Marker || !map) return;
+
+    amapOverlaysRef.current.forEach((o) => map.remove(o));
+    amapOverlaysRef.current = [];
+
+    const esc = (s: any) =>
+      String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+    visibleCandidates.forEach((candidate) => {
+      const isSelected = activeCandidate?.id === candidate.id;
+      const { bg, tag, border } = pillStyle(candidate, isSelected);
+      const marker = new AMap.Marker({
+        position: [candidate.resolvedCoords.lng, candidate.resolvedCoords.lat],
+        anchor: 'bottom-center',
+        zIndex: isSelected ? 40 : 20,
+        content: `
+          <div style="
+            display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:9999px;
+            font-family:monospace;font-size:11px;font-weight:700;white-space:nowrap;
+            box-shadow:0 4px 10px rgba(0,0,0,0.22);
+            border:2px solid ${border};background-color:${bg};color:#ffffff;cursor:pointer;
+          ">
+            <span>¥${candidate.rent}</span>
+            <span style="font-size:9px;opacity:0.95;padding:1px 4px;border-radius:4px;background-color:rgba(0,0,0,0.25)">${esc(tag)}</span>
+          </div>`,
+      });
+      marker.on('click', () => setActiveCandidate(candidate));
+      amapOverlaysRef.current.push(marker);
+    });
+
+    if (workplaceCoords) {
+      const wm = new AMap.Marker({
+        position: [workplaceCoords.lng, workplaceCoords.lat],
+        anchor: 'bottom-center',
+        zIndex: 50,
+        content: `
+          <div style="
+            display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:9999px;
+            font-family:monospace;font-size:11px;font-weight:800;white-space:nowrap;
+            box-shadow:0 4px 14px rgba(79,70,229,0.4);border:2px solid #ffffff;
+            background:linear-gradient(135deg,#4f46e5 0%,#312e81 100%);color:#ffffff;
+          ">
+            <span>🏢</span>
+            <span>${esc(workplace || '工作地点')}</span>
+          </div>`,
+      });
+      amapOverlaysRef.current.push(wm);
+    }
+
+    // 选中房源的真实公交路线（高德规划结果，points 为 [lng,lat]）
+    const segs = activeCandidate ? routeSegments[activeCandidate.id] : null;
+    if (segs) {
+      segs.forEach((seg: any) => {
+        const line = new AMap.Polyline({
+          path: seg.points.map((p: [number, number]) => [p[0], p[1]]),
+          strokeColor: seg.type === 'walk' ? '#94a3b8' : '#e11d48',
+          strokeWeight: seg.type === 'walk' ? 4 : 6,
+          strokeOpacity: 0.95,
+          strokeStyle: seg.type === 'walk' ? 'dashed' : 'solid',
+          bubble: true,
+        });
+        amapOverlaysRef.current.push(line);
+      });
+    }
+
+    map.add(amapOverlaysRef.current);
+  }, [mapEngine, amapStatus, visibleCandidates, activeCandidate, routeSegments, workplaceCoords]);
+
   // Center map on workplace
   const handleCenterWorkplace = () => {
-    setRadarPan({ x: 0, y: 0 });
-    setRadarZoom(1);
+    if (mapEngine === 'amap' && amapMapRef.current) {
+      amapMapRef.current.setCenter([displayCenter.lng, displayCenter.lat]);
+      amapMapRef.current.setZoom(12);
+    } else {
+      setRadarPan({ x: 0, y: 0 });
+      setRadarZoom(1);
+    }
   };
 
   // Fit all candidates and workplace in view
   const handleFitAll = () => {
-    setRadarPan({ x: 0, y: 0 });
-    setRadarZoom(1);
+    if (mapEngine === 'amap' && amapMapRef.current && amapOverlaysRef.current.length > 0) {
+      amapMapRef.current.setFitView(amapOverlaysRef.current, false, [40, 40, 40, 40]);
+    } else {
+      setRadarPan({ x: 0, y: 0 });
+      setRadarZoom(1);
+    }
   };
 
   // Drag handlers for Radar Map
@@ -181,6 +332,42 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Engine Switcher */}
+          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 p-0.5 bg-neutral-100/80 dark:bg-neutral-800/80 text-[10px] font-mono-code mr-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMapEngine('amap');
+                if (amapStatus === 'failed') {
+                  setAmapStatus('loading');
+                  setAmapNotice('');
+                }
+              }}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'amap'
+                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="高德地图实景底图"
+            >
+              <Layers className="w-3 h-3" />
+              <span>高德地图</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapEngine('radar')}
+              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                mapEngine === 'radar'
+                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+              }`}
+              title="本地动态雷达等时圈（离线兜底）"
+            >
+              <Compass className="w-3 h-3" />
+              <span>雷达等时圈</span>
+            </button>
+          </div>
+
           <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
             <button
               type="button"
@@ -341,15 +528,39 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
         </div>
       </div>
 
+      {/* AMap Failure Notice Banner */}
+      {mapEngine === 'radar' && amapNotice && (
+        <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span>高德底图不可用（{amapNotice}），已切换至本地雷达等时圈；路线数据不受影响</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAmapNotice('')}
+            className="hover:opacity-75 font-mono-code text-[11px] underline ml-2 cursor-pointer"
+          >
+            忽略
+          </button>
+        </div>
+      )}
+
       {/* Main Map Viewport */}
       <div
         className="relative flex-1 min-h-[420px] sm:min-h-[480px] w-full bg-slate-950 overflow-hidden select-none"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        onMouseDown={mapEngine === 'radar' ? handleMouseDown : undefined}
+        onMouseMove={mapEngine === 'radar' ? handleMouseMove : undefined}
+        onMouseUp={mapEngine === 'radar' ? handleMouseUp : undefined}
       >
+        {/* AMap Basemap Container */}
+        <div
+          ref={mapContainerRef}
+          className={`absolute inset-0 w-full h-full ${mapEngine === 'amap' ? 'block' : 'hidden'}`}
+        />
+
         {/* Dynamic Radar Commute Heatmap Canvas Engine */}
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
+        {mapEngine === 'radar' && (
+          <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
             <div
               className="relative w-full h-full transition-transform duration-75 ease-out"
               style={{
@@ -474,7 +685,8 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                 );
               })}
             </div>
-        </div>
+          </div>
+        )}
 
         {/* Selected Candidate Commute Inspector Card */}
         {activeCandidate && (
