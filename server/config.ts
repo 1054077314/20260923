@@ -29,16 +29,6 @@ export function geminiApiKey(): string {
   return process.env.GEMINI_API_KEY || '';
 }
 
-/** 前端 Google Maps 用 key：多环境变量兜底，全无则回落到内置公共 key */
-export function browserMapsKey(): string {
-  return (
-    process.env.VITE_GEMINI_PUBLIC_MAPS_API_KEY ||
-    process.env.VITE_GOOGLE_MAPS_API_KEY ||
-    process.env.GOOGLE_MAPS_API_KEY ||
-    'AIzaSyBIoomGq3PNyW2WrvhwyKagxUkU-NxuTRE'
-  );
-}
-
 /** 缺失 AMAP_KEY 时的统一提示后半段，各接口自己补前半句 */
 export const AMAP_KEY_MISSING_HINT =
   '请在 .env 中添加 AMAP_KEY=你的key（高德 Web 服务 Key）并重启服务';

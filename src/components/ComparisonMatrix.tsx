@@ -553,7 +553,7 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                   ? 'text-neutral-400 bg-neutral-900 hover:bg-neutral-800 border-neutral-700'
                   : 'text-neutral-600 bg-neutral-50 hover:bg-neutral-100 border-neutral-200'
               }`}
-              title="切换城市房源地理坐标与 Google Maps 联动视图"
+              title="切换城市房源地理坐标雷达视图"
             >
               <MapPin className={`w-3.5 h-3.5 ${showMapView ? 'text-emerald-500 fill-emerald-500/20' : 'text-neutral-400'}`} />
               <span>{showMapView ? '地图联动已开启' : '开启地图联动'}</span>
@@ -1281,7 +1281,7 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
             </div>
           </div>
 
-          {/* Right Column: Google Maps Container */}
+          {/* Right Column: Candidate Map View */}
           {showMapView && (
             <div className="w-full xl:w-[42%] xl:sticky xl:top-20 shrink-0 space-y-2">
               <CandidatePropertiesMap

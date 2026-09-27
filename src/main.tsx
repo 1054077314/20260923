@@ -9,12 +9,8 @@ if (typeof window !== 'undefined') {
     console.warn('[Notice]:', msg);
   };
 
-  (window as any).gm_authFailure = () => {
-    console.warn('[Google Maps Auth Notice]: Running in sandboxed or preview environment.');
-  };
-
   window.addEventListener('error', (event) => {
-    if (event.message === 'Script error.' || event.message?.includes('Google Maps')) {
+    if (event.message === 'Script error.') {
       // Prevent cross-origin script error from bubbling to uncaught error listeners
       event.preventDefault();
       console.warn('[Suppressed cross-origin script error]:', event);

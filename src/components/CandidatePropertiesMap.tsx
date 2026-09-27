@@ -3,9 +3,6 @@ import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
   getExplicitCoordinates,
-  loadGoogleMapsSdk,
-  getGoogleMapsApiKey,
-  onGoogleMapsAuthFailure,
   LatLng,
 } from '../utils/mapUtils';
 import {
@@ -14,7 +11,6 @@ import {
   Compass,
   Maximize2,
   Minimize2,
-  RefreshCw,
   Home,
   CheckCircle2,
   AlertCircle,
@@ -46,14 +42,6 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
   className = '',
   onCloseMap,
 }) => {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
-  const infoWindowRef = useRef<any>(null);
-
-  const [mapEngine, setMapEngine] = useState<'google' | 'radar'>('google');
-  const [loading, setLoading] = useState(true);
-  const [authErrorNotice, setAuthErrorNotice] = useState(false);
   const [activeProperty, setActiveProperty] = useState<CandidateProperty | null>(null);
   const [radarZoom, setRadarZoom] = useState(1);
   const [radarPan, setRadarPan] = useState({ x: 0, y: 0 });
@@ -61,44 +49,6 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const cityCenter = useMemo(() => getCityCenter(city), [city]);
-
-  // Listen to Google Maps auth failure globally
-  useEffect(() => {
-    const unsub = onGoogleMapsAuthFailure(() => {
-      console.warn('Google Maps 授权失败，自动无缝切换到空间雷达等时圈');
-      setMapEngine('radar');
-      setLoading(false);
-      setAuthErrorNotice(true);
-    });
-    return unsub;
-  }, []);
-
-  // Detect Google Maps grey error overlay in the DOM and auto-recover
-  useEffect(() => {
-    if (mapEngine !== 'google' || !mapContainerRef.current) return;
-    const observer = new MutationObserver(() => {
-      const container = mapContainerRef.current;
-      if (
-        container &&
-        (container.querySelector('.gm-err-container') ||
-          container.textContent?.includes('此页面未能正确加载') ||
-          container.textContent?.includes('糟糕！出了点问题'))
-      ) {
-        console.warn('检测到 Google 地图界面异常，自动切换到高精度雷达拓扑视图');
-        setMapEngine('radar');
-        setLoading(false);
-        setAuthErrorNotice(true);
-      }
-    });
-
-    observer.observe(mapContainerRef.current, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    return () => observer.disconnect();
-  }, [mapEngine]);
 
   // 只有显式真实坐标才上图；解析不出 = 不画点，绝不锚定到城市中心冒充位置
   const candidatesWithCoords = useMemo(() => {
@@ -110,191 +60,26 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
       .filter((c): c is typeof candidates[number] & { resolvedCoords: LatLng } => c !== null);
   }, [candidates]);
 
-  // Initialize Google Maps instance with graceful fallback
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function initMap() {
-      if (!mapContainerRef.current) return;
-      try {
-        setLoading(true);
-
-        const apiKey = await getGoogleMapsApiKey();
-        // Load with 5s timeout; falls back gracefully if network is restricted
-        await loadGoogleMapsSdk(apiKey, 5000);
-
-        if (isCancelled || !mapContainerRef.current) return;
-
-        const google = (window as any).google;
-        if (!google?.maps?.Map) {
-          throw new Error('Google Maps SDK 未就绪');
-        }
-
-        if (!mapInstanceRef.current) {
-          const map = new google.maps.Map(mapContainerRef.current, {
-            center: cityCenter,
-            zoom: 12,
-            mapId: 'DEMO_MAP_ID',
-            disableDefaultUI: false,
-            zoomControl: true,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-          });
-
-          mapInstanceRef.current = map;
-          infoWindowRef.current = new google.maps.InfoWindow();
-        } else {
-          mapInstanceRef.current.setCenter(cityCenter);
-        }
-
-        setMapEngine('google');
-        setLoading(false);
-      } catch (err: any) {
-        console.warn('Google Maps unavailable, switching to Interactive Radar Map:', err?.message);
-        if (!isCancelled) {
-          setMapEngine('radar');
-          setLoading(false);
-          setAuthErrorNotice(true);
-        }
-      }
-    }
-
-    initMap();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [cityCenter]);
-
-  // Sync Markers for Google Maps when in google engine mode
-  useEffect(() => {
-    if (mapEngine !== 'google' || !mapInstanceRef.current || loading) return;
-
-    const google = (window as any).google;
-    const map = mapInstanceRef.current;
-    if (!google?.maps) return;
-
-    // Clear old markers
-    markersRef.current.forEach((marker) => {
-      if (typeof marker.setMap === 'function') {
-        marker.setMap(null);
-      } else if (marker.map) {
-        marker.map = null;
-      }
-    });
-    markersRef.current.clear();
-
-    const { AdvancedMarkerElement } = google.maps.marker || {};
-
-    candidatesWithCoords.forEach((candidate) => {
-      const isSelected = selectedCandidateId === candidate.id;
-      const position = {
-        lat: candidate.resolvedCoords.lat,
-        lng: candidate.resolvedCoords.lng,
-      };
-
-      if (AdvancedMarkerElement) {
-        const pinContainer = document.createElement('div');
-        pinContainer.className = `cursor-pointer transition-all duration-200 transform ${
-          isSelected ? 'scale-110 z-50' : 'hover:scale-105 z-10'
-        }`;
-
-        pinContainer.innerHTML = `
-          <div style="
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 8px;
-            border-radius: 9999px;
-            font-family: monospace;
-            font-size: 11px;
-            font-weight: 700;
-            white-space: nowrap;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.18);
-            border: 2px solid ${isSelected ? '#6366f1' : '#ffffff'};
-            background-color: ${isSelected ? '#4f46e5' : '#0f172a'};
-            color: #ffffff;
-          ">
-            <span>¥${candidate.rent}</span>
-            <span style="
-              font-size: 9px;
-              opacity: 0.85;
-              padding: 1px 4px;
-              border-radius: 4px;
-              background-color: rgba(255,255,255,0.2);
-            ">${candidate.walkToSubwayMin != null ? candidate.walkToSubwayMin + 'm' : '—'}</span>
-          </div>
-        `;
-
-        const marker = new AdvancedMarkerElement({
-          map,
-          position,
-          title: candidate.title || candidate.community,
-          content: pinContainer,
-        });
-
-        marker.addListener('click', () => {
-          setActiveProperty(candidate);
-          if (onSelectCandidate) onSelectCandidate(candidate.id);
-        });
-
-        markersRef.current.set(candidate.id, marker);
-      } else {
-        const marker = new google.maps.Marker({
-          position,
-          map,
-          title: candidate.title || candidate.community,
-        });
-        marker.addListener('click', () => {
-          setActiveProperty(candidate);
-          if (onSelectCandidate) onSelectCandidate(candidate.id);
-        });
-        markersRef.current.set(candidate.id, marker);
-      }
-    });
-  }, [mapEngine, candidatesWithCoords, selectedCandidateId, loading, onSelectCandidate]);
-
   // Sync active property from prop
   useEffect(() => {
     if (selectedCandidateId) {
       const found = candidatesWithCoords.find((c) => c.id === selectedCandidateId);
       if (found) {
         setActiveProperty(found);
-        if (mapEngine === 'google' && mapInstanceRef.current) {
-          mapInstanceRef.current.panTo({
-            lat: found.resolvedCoords.lat,
-            lng: found.resolvedCoords.lng,
-          });
-        }
       }
     }
-  }, [selectedCandidateId, candidatesWithCoords, mapEngine]);
+  }, [selectedCandidateId, candidatesWithCoords]);
 
   const handleResetToCity = () => {
-    if (mapEngine === 'google' && mapInstanceRef.current) {
-      mapInstanceRef.current.panTo(cityCenter);
-      mapInstanceRef.current.setZoom(12);
-    } else {
-      setRadarPan({ x: 0, y: 0 });
-      setRadarZoom(1);
-    }
+    setRadarPan({ x: 0, y: 0 });
+    setRadarZoom(1);
     setActiveProperty(null);
   };
 
   const handleFitAllCandidates = () => {
     if (candidatesWithCoords.length === 0) return;
-    if (mapEngine === 'google' && mapInstanceRef.current && (window as any).google?.maps) {
-      const google = (window as any).google;
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend(cityCenter);
-      candidatesWithCoords.forEach((c) => bounds.extend(c.resolvedCoords));
-      mapInstanceRef.current.fitBounds(bounds);
-    } else {
-      setRadarPan({ x: 0, y: 0 });
-      setRadarZoom(1);
-    }
+    setRadarPan({ x: 0, y: 0 });
+    setRadarZoom(1);
   };
 
   // Drag handlers for Radar Map
@@ -349,56 +134,24 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5">
-          {/* Engine Switcher */}
-          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 p-0.5 bg-neutral-100/80 dark:bg-neutral-800/80 text-[10px] font-mono-code mr-1">
+          <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
             <button
               type="button"
-              onClick={() => setMapEngine('radar')}
-              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
-                mapEngine === 'radar'
-                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-              }`}
-              title="切换为本地动态空间雷达拓扑"
+              onClick={() => setRadarZoom((z) => Math.min(2.5, z + 0.2))}
+              title="放大"
+              className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
             >
-              <Compass className="w-3 h-3" />
-              <span>空间雷达拓扑</span>
+              <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
-              onClick={() => setMapEngine('google')}
-              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
-                mapEngine === 'google'
-                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-              }`}
-              title="切换为 Google Maps 实景底图"
+              onClick={() => setRadarZoom((z) => Math.max(0.6, z - 0.2))}
+              title="缩小"
+              className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border-l border-neutral-200 dark:border-neutral-700"
             >
-              <Layers className="w-3 h-3" />
-              <span>Google 地图</span>
+              <ZoomOut className="w-3.5 h-3.5" />
             </button>
           </div>
-
-          {mapEngine === 'radar' && (
-            <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
-              <button
-                type="button"
-                onClick={() => setRadarZoom((z) => Math.min(2.5, z + 0.2))}
-                title="放大"
-                className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setRadarZoom((z) => Math.max(0.6, z - 0.2))}
-                title="缩小"
-                className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border-l border-neutral-200 dark:border-neutral-700"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
 
           <button
             type="button"
@@ -434,136 +187,111 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
         </div>
       </div>
 
-      {/* Network / Auth Notice Banner */}
-      {authErrorNotice && (
-        <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            <span>Google 地图网络连接受限，已无缝切换至「高精度空间雷达拓扑」（房源坐标均正常工作）</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAuthErrorNotice(false)}
-            className="hover:opacity-75 font-mono-code text-[11px] underline ml-2 cursor-pointer"
-          >
-            忽略
-          </button>
-        </div>
-      )}
-
       {/* Map Container Viewport */}
       <div
         className="relative flex-1 min-h-[380px] sm:min-h-[440px] w-full bg-slate-950 overflow-hidden select-none"
-        onMouseDown={mapEngine === 'radar' ? handleMouseDown : undefined}
-        onMouseMove={mapEngine === 'radar' ? handleMouseMove : undefined}
-        onMouseUp={mapEngine === 'radar' ? handleMouseUp : undefined}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
       >
-        {/* Google Maps Viewport Container */}
-        <div
-          ref={mapContainerRef}
-          className={`absolute inset-0 w-full h-full ${mapEngine === 'google' ? 'block' : 'hidden'}`}
-        />
-
         {/* Interactive Geospatial Radar Canvas Engine */}
-        {mapEngine === 'radar' && (
-          <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
-            {/* Grid Lines & Concentric Radar Rings */}
-            <div
-              className="relative w-full h-full transition-transform duration-75 ease-out"
-              style={{
-                transform: `translate(${radarPan.x}px, ${radarPan.y}px) scale(${radarZoom})`,
-                transformOrigin: 'center center',
-              }}
-            >
-              {/* Radar Coordinate Grid SVG */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none stroke-slate-800/80">
-                <defs>
-                  <radialGradient id="radarGlow" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.12" />
-                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-                  </radialGradient>
-                </defs>
-                <circle cx="50%" cy="50%" r="42%" fill="url(#radarGlow)" />
-                <circle cx="50%" cy="50%" r="100" fill="none" strokeDasharray="3 3" />
-                <circle cx="50%" cy="50%" r="180" fill="none" strokeDasharray="4 4" />
-                <circle cx="50%" cy="50%" r="260" fill="none" strokeDasharray="4 4" />
-                <line x1="50%" y1="0%" x2="50%" y2="100%" stroke="rgba(255,255,255,0.06)" />
-                <line x1="0%" y1="50%" x2="100%" y2="50%" stroke="rgba(255,255,255,0.06)" />
-              </svg>
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
+          {/* Grid Lines & Concentric Radar Rings */}
+          <div
+            className="relative w-full h-full transition-transform duration-75 ease-out"
+            style={{
+              transform: `translate(${radarPan.x}px, ${radarPan.y}px) scale(${radarZoom})`,
+              transformOrigin: 'center center',
+            }}
+          >
+            {/* Radar Coordinate Grid SVG */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none stroke-slate-800/80">
+              <defs>
+                <radialGradient id="radarGlow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#6366f1" stopOpacity="0.12" />
+                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                </radialGradient>
+              </defs>
+              <circle cx="50%" cy="50%" r="42%" fill="url(#radarGlow)" />
+              <circle cx="50%" cy="50%" r="100" fill="none" strokeDasharray="3 3" />
+              <circle cx="50%" cy="50%" r="180" fill="none" strokeDasharray="4 4" />
+              <circle cx="50%" cy="50%" r="260" fill="none" strokeDasharray="4 4" />
+              <line x1="50%" y1="0%" x2="50%" y2="100%" stroke="rgba(255,255,255,0.06)" />
+              <line x1="0%" y1="50%" x2="100%" y2="50%" stroke="rgba(255,255,255,0.06)" />
+            </svg>
 
-              {/* Distance Labels */}
-              <div className="absolute left-[calc(50%+105px)] top-[calc(50%-10px)] text-[9px] font-mono-code text-slate-500 pointer-events-none">
-                ~1.5 km
+            {/* Distance Labels */}
+            <div className="absolute left-[calc(50%+105px)] top-[calc(50%-10px)] text-[9px] font-mono-code text-slate-500 pointer-events-none">
+              ~1.5 km
+            </div>
+            <div className="absolute left-[calc(50%+185px)] top-[calc(50%-10px)] text-[9px] font-mono-code text-slate-500 pointer-events-none">
+              ~3.0 km
+            </div>
+            <div className="absolute left-[calc(50%+265px)] top-[calc(50%-10px)] text-[9px] font-mono-code text-slate-500 pointer-events-none">
+              ~5.0 km
+            </div>
+
+            {/* City Center Benchmark Pin */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center">
+              <div className="w-3.5 h-3.5 rounded-full bg-indigo-500 ring-4 ring-indigo-500/30 animate-pulse" />
+              <div className="mt-1 text-[10px] font-mono-code text-indigo-300 bg-slate-900/90 px-1.5 py-0.5 rounded border border-indigo-500/30 shadow-xs whitespace-nowrap">
+                {city}基准中心点
               </div>
-              <div className="absolute left-[calc(50%+185px)] top-[calc(50%-10px)] text-[9px] font-mono-code text-slate-500 pointer-events-none">
-                ~3.0 km
-              </div>
-              <div className="absolute left-[calc(50%+265px)] top-[calc(50%-10px)] text-[9px] font-mono-code text-slate-500 pointer-events-none">
-                ~5.0 km
-              </div>
+            </div>
 
-              {/* City Center Benchmark Pin */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center">
-                <div className="w-3.5 h-3.5 rounded-full bg-indigo-500 ring-4 ring-indigo-500/30 animate-pulse" />
-                <div className="mt-1 text-[10px] font-mono-code text-indigo-300 bg-slate-900/90 px-1.5 py-0.5 rounded border border-indigo-500/30 shadow-xs whitespace-nowrap">
-                  {city}基准中心点
-                </div>
-              </div>
+            {/* Candidate Property Markers */}
+            {candidatesWithCoords.map((candidate) => {
+              const isSelected = selectedCandidateId === candidate.id;
+              // Calculate projected pixels relative to center
+              // 1 deg lat ≈ 111km, 1 deg lng ≈ 111km * cos(lat)
+              const latDiff = candidate.resolvedCoords.lat - cityCenter.lat;
+              const lngDiff = candidate.resolvedCoords.lng - cityCenter.lng;
+              const cosLat = Math.cos((cityCenter.lat * Math.PI) / 180);
 
-              {/* Candidate Property Markers */}
-              {candidatesWithCoords.map((candidate) => {
-                const isSelected = selectedCandidateId === candidate.id;
-                // Calculate projected pixels relative to center
-                // 1 deg lat ≈ 111km, 1 deg lng ≈ 111km * cos(lat)
-                const latDiff = candidate.resolvedCoords.lat - cityCenter.lat;
-                const lngDiff = candidate.resolvedCoords.lng - cityCenter.lng;
-                const cosLat = Math.cos((cityCenter.lat * Math.PI) / 180);
+              // Scale factor for visualization viewport
+              const scale = 3600;
+              const offsetX = lngDiff * cosLat * scale;
+              const offsetY = -latDiff * scale;
 
-                // Scale factor for visualization viewport
-                const scale = 3600;
-                const offsetX = lngDiff * cosLat * scale;
-                const offsetY = -latDiff * scale;
-
-                return (
+              return (
+                <div
+                  key={candidate.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveProperty(candidate);
+                    if (onSelectCandidate) onSelectCandidate(candidate.id);
+                  }}
+                  style={{
+                    left: `calc(50% + ${offsetX}px)`,
+                    top: `calc(50% + ${offsetY}px)`,
+                  }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all duration-200 group ${
+                    isSelected ? 'z-40 scale-110' : 'z-20 hover:scale-105'
+                  }`}
+                >
                   <div
-                    key={candidate.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveProperty(candidate);
-                      if (onSelectCandidate) onSelectCandidate(candidate.id);
-                    }}
-                    style={{
-                      left: `calc(50% + ${offsetX}px)`,
-                      top: `calc(50% + ${offsetY}px)`,
-                    }}
-                    className={`absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all duration-200 group ${
-                      isSelected ? 'z-40 scale-110' : 'z-20 hover:scale-105'
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono-code text-xs font-bold shadow-lg border transition-all ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-white ring-2 ring-indigo-400 shadow-indigo-500/40'
+                        : 'bg-slate-900/90 text-slate-100 border-slate-700 hover:border-slate-500 hover:bg-slate-800'
                     }`}
                   >
-                    <div
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono-code text-xs font-bold shadow-lg border transition-all ${
-                        isSelected
-                          ? 'bg-indigo-600 text-white border-white ring-2 ring-indigo-400 shadow-indigo-500/40'
-                          : 'bg-slate-900/90 text-slate-100 border-slate-700 hover:border-slate-500 hover:bg-slate-800'
-                      }`}
-                    >
-                      <MapPin className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-indigo-400'}`} />
-                      <span>¥{candidate.rent}</span>
-                      <span className="text-[10px] font-normal opacity-80 pl-0.5">
-                        {candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'}
-                      </span>
-                    </div>
-
-                    {/* Community Title Tooltip on Hover */}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 hidden group-hover:block bg-black/90 text-slate-200 text-[10px] px-2 py-0.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none">
-                      {candidate.community} · {candidate.title}
-                    </div>
+                    <MapPin className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-indigo-400'}`} />
+                    <span>¥{candidate.rent}</span>
+                    <span className="text-[10px] font-normal opacity-80 pl-0.5">
+                      {candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+
+                  {/* Community Title Tooltip on Hover */}
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 hidden group-hover:block bg-black/90 text-slate-200 text-[10px] px-2 py-0.5 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none">
+                    {candidate.community} · {candidate.title}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        )}
+        </div>
 
         {/* Selected Property Bottom Floating Card */}
         {activeProperty && (

@@ -2,9 +2,6 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { CandidateProperty } from '../types/rental';
 import {
   getCityCenter,
-  loadGoogleMapsSdk,
-  getGoogleMapsApiKey,
-  onGoogleMapsAuthFailure,
   TransitMode,
   LatLng,
 } from '../utils/mapUtils';
@@ -68,16 +65,6 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   routesPending = false,
   onOpenComparison,
 }) => {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
-  const circlesRef = useRef<any[]>([]);
-  const routeLayerRef = useRef<any[]>([]);
-  const workplaceMarkerRef = useRef<any>(null);
-
-  const [mapEngine, setMapEngine] = useState<'google' | 'radar'>('google');
-  const [loading, setLoading] = useState(true);
-  const [authErrorNotice, setAuthErrorNotice] = useState(false);
   const setTransitMode = onTransitModeChange;
   const [showHeatOverlay, setShowHeatOverlay] = useState(true);
   const [onlyShowWithinLimit, setOnlyShowWithinLimit] = useState(false);
@@ -95,44 +82,6 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     workplaceState.status === 'ok' && workplaceState.coord ? workplaceState.coord : null;
   // 地图视野中心：有真实工作地用工作地，否则回落城市中心（仅作视野）
   const displayCenter: LatLng = workplaceCoords || cityCenter;
-
-  // Listen to Google Maps auth failure globally
-  useEffect(() => {
-    const unsub = onGoogleMapsAuthFailure(() => {
-      console.warn('Google Maps 授权失败，已自动无缝切换到空间动态雷达等时圈');
-      setMapEngine('radar');
-      setLoading(false);
-      setAuthErrorNotice(true);
-    });
-    return unsub;
-  }, []);
-
-  // Detect Google Maps grey error overlay in the DOM and auto-recover
-  useEffect(() => {
-    if (mapEngine !== 'google' || !mapContainerRef.current) return;
-    const observer = new MutationObserver(() => {
-      const container = mapContainerRef.current;
-      if (
-        container &&
-        (container.querySelector('.gm-err-container') ||
-          container.textContent?.includes('此页面未能正确加载') ||
-          container.textContent?.includes('糟糕！出了点问题'))
-      ) {
-        console.warn('检测到 Google 地图界面加载异常，已自动无缝切换到高精度雷达等时圈');
-        setMapEngine('radar');
-        setLoading(false);
-        setAuthErrorNotice(true);
-      }
-    });
-
-    observer.observe(mapContainerRef.current, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    return () => observer.disconnect();
-  }, [mapEngine]);
 
   // 富化与统计统一走 commuteStats（唯一口径），组件只保留“仅看达标”UI 开关
   const { plotted: candidatesWithCoords, coverage } = useMemo(
@@ -156,298 +105,16 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleCandidates.length]);
 
-  // Initialize Google Maps instance with graceful fallback
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function initMap() {
-      if (!mapContainerRef.current) return;
-      try {
-        setLoading(true);
-        const apiKey = await getGoogleMapsApiKey();
-        await loadGoogleMapsSdk(apiKey, 5000);
-
-        if (isCancelled || !mapContainerRef.current) return;
-
-        const google = (window as any).google;
-        if (!google?.maps?.Map) {
-          throw new Error('Google Maps SDK 未就绪');
-        }
-
-        if (!mapInstanceRef.current) {
-          const map = new google.maps.Map(mapContainerRef.current, {
-            center: displayCenter,
-            zoom: 12,
-            mapId: 'DEMO_MAP_ID',
-            disableDefaultUI: false,
-            zoomControl: true,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-          });
-          mapInstanceRef.current = map;
-        } else {
-          mapInstanceRef.current.setCenter(displayCenter);
-        }
-
-        setMapEngine('google');
-        setLoading(false);
-      } catch (err: any) {
-        console.warn('Google Maps unavailable in sandbox, switching to Radar Commute Map:', err?.message);
-        if (!isCancelled) {
-          setMapEngine('radar');
-          setLoading(false);
-          setAuthErrorNotice(true);
-        }
-      }
-    }
-
-    initMap();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [workplaceCoords]);
-
-  // Sync Google Maps Overlays (Isochrone Circles & Workplace Marker)
-  useEffect(() => {
-    if (mapEngine !== 'google' || !mapInstanceRef.current || loading) return;
-
-    const google = (window as any).google;
-    const map = mapInstanceRef.current;
-    if (!google?.maps) return;
-
-    // Clear old circles
-    circlesRef.current.forEach((c) => c.setMap(null));
-    circlesRef.current = [];
-
-    // Clear old workplace marker
-    if (workplaceMarkerRef.current) {
-      if (typeof workplaceMarkerRef.current.setMap === 'function') {
-        workplaceMarkerRef.current.setMap(null);
-      } else if (workplaceMarkerRef.current.map) {
-        workplaceMarkerRef.current.map = null;
-      }
-      workplaceMarkerRef.current = null;
-    }
-
-    // 无真实工作地坐标：不画工作地标记与圆圈（避免冒充定位）
-    if (!workplaceCoords) return;
-
-    // Workplace Marker
-    const { AdvancedMarkerElement } = google.maps.marker || {};
-    if (AdvancedMarkerElement) {
-      const pinContainer = document.createElement('div');
-      pinContainer.className = 'cursor-pointer transform hover:scale-105 transition-transform z-50';
-      pinContainer.innerHTML = `
-        <div style="
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          padding: 5px 10px;
-          border-radius: 9999px;
-          font-family: monospace;
-          font-size: 11px;
-          font-weight: 800;
-          white-space: nowrap;
-          box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
-          border: 2px solid #ffffff;
-          background: linear-gradient(135deg, #4f46e5 0%, #312e81 100%);
-          color: #ffffff;
-        ">
-          <span>🏢</span>
-          <span>${workplace || '工作地点'}</span>
-        </div>
-      `;
-
-      workplaceMarkerRef.current = new AdvancedMarkerElement({
-        map,
-        position: workplaceCoords,
-        title: `工作地: ${workplace || '市中心商务区'}`,
-        content: pinContainer,
-      });
-    } else {
-      workplaceMarkerRef.current = new google.maps.Marker({
-        position: workplaceCoords,
-        map,
-        title: `工作地: ${workplace || '市中心商务区'}`,
-      });
-    }
-  }, [
-    mapEngine,
-    workplaceCoords,
-    workplace,
-    loading,
-  ]);
-
-  // Draw the selected listing's REAL AMap transit route on Google Maps:
-  // walk legs (gray thin) + bus legs (rose thick) + boarding/alighting dots
-  useEffect(() => {
-    if (mapEngine !== 'google') return;
-    const google = (window as any).google;
-    const map = mapInstanceRef.current;
-    if (!google?.maps?.Polyline || !map) return;
-
-    routeLayerRef.current.forEach((l: any) => {
-      if (l.setMap) l.setMap(null);
-    });
-    routeLayerRef.current = [];
-
-    const segs = activeCandidate ? routeSegments[activeCandidate.id] : null;
-    if (!segs || segs.length === 0) return;
-
-    segs.forEach((seg: any) => {
-      const line = new google.maps.Polyline({
-        path: seg.points.map((p: [number, number]) => ({ lat: p[1], lng: p[0] })),
-        strokeColor: seg.type === 'walk' ? '#94a3b8' : '#e11d48',
-        strokeOpacity: 0.95,
-        strokeWeight: seg.type === 'walk' ? 4 : 6,
-        map,
-        clickable: false,
-      });
-      routeLayerRef.current.push(line);
-
-      if (seg.type === 'bus') {
-        [seg.points[0], seg.points[seg.points.length - 1]].forEach((p: [number, number]) => {
-          const dot = new google.maps.Circle({
-            center: { lat: p[1], lng: p[0] },
-            radius: 60,
-            strokeColor: '#e11d48',
-            strokeWeight: 3,
-            fillColor: '#ffffff',
-            fillOpacity: 1,
-            map,
-            clickable: false,
-          });
-          routeLayerRef.current.push(dot);
-        });
-      }
-    });
-  }, [activeCandidate, routeSegments, mapEngine, loading]);
-
-  // Sync Google Maps Candidate Markers
-  useEffect(() => {
-    if (mapEngine !== 'google' || !mapInstanceRef.current || loading) return;
-
-    const google = (window as any).google;
-    const map = mapInstanceRef.current;
-    if (!google?.maps) return;
-
-    // Clear previous candidate markers
-    markersRef.current.forEach((marker) => {
-      if (typeof marker.setMap === 'function') {
-        marker.setMap(null);
-      } else if (marker.map) {
-        marker.map = null;
-      }
-    });
-    markersRef.current.clear();
-
-    const { AdvancedMarkerElement } = google.maps.marker || {};
-
-    visibleCandidates.forEach((candidate) => {
-      const isSelected = activeCandidate?.id === candidate.id;
-      const position = {
-        lat: candidate.resolvedCoords.lat,
-        lng: candidate.resolvedCoords.lng,
-      };
-
-      // Color scheme based on commute category
-      let bgColor = '#6b7280'; // gray when no real route
-      let tagText = candidate.commuteMin != null ? `${candidate.commuteMin}m 舒适` : '路线不可用';
-      if (candidate.commuteMin != null && !candidate.isComfortable && candidate.isWithinLimit) {
-        bgColor = '#f59e0b'; // amber
-        tagText = `${candidate.commuteMin}m 达标`;
-      } else if (candidate.commuteMin != null && !candidate.isWithinLimit) {
-        bgColor = '#f43f5e'; // rose red
-        tagText = `${candidate.commuteMin}m 超时+${candidate.overMinutes}m`;
-      } else if (candidate.commuteMin != null) {
-        bgColor = '#10b981'; // green
-      }
-
-      if (AdvancedMarkerElement) {
-        const pinContainer = document.createElement('div');
-        pinContainer.className = `cursor-pointer transition-all duration-200 transform ${
-          isSelected ? 'scale-115 z-40' : 'hover:scale-105 z-20'
-        }`;
-
-        pinContainer.innerHTML = `
-          <div style="
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 8px;
-            border-radius: 9999px;
-            font-family: monospace;
-            font-size: 11px;
-            font-weight: 700;
-            white-space: nowrap;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.22);
-            border: 2px solid ${isSelected ? '#ffffff' : 'rgba(255,255,255,0.85)'};
-            background-color: ${bgColor};
-            color: #ffffff;
-          ">
-            <span>¥${candidate.rent}</span>
-            <span style="
-              font-size: 9px;
-              opacity: 0.95;
-              padding: 1px 4px;
-              border-radius: 4px;
-              background-color: rgba(0,0,0,0.25);
-            ">${tagText}</span>
-          </div>
-        `;
-
-        const marker = new AdvancedMarkerElement({
-          map,
-          position,
-          title: `${candidate.community} - 单程通勤 ${candidate.commuteMin != null ? candidate.commuteMin + ' 分钟' : '路线不可用'}`,
-          content: pinContainer,
-        });
-
-        marker.addListener('click', () => {
-          setActiveCandidate(candidate);
-        });
-
-        markersRef.current.set(candidate.id, marker);
-      } else {
-        const marker = new google.maps.Marker({
-          position,
-          map,
-          title: `${candidate.community} - 单程通勤 ${candidate.commuteMin != null ? candidate.commuteMin + ' 分钟' : '路线不可用'}`,
-        });
-        marker.addListener('click', () => {
-          setActiveCandidate(candidate);
-        });
-        markersRef.current.set(candidate.id, marker);
-      }
-    });
-  }, [mapEngine, visibleCandidates, activeCandidate, loading]);
-
   // Center map on workplace
   const handleCenterWorkplace = () => {
-    if (mapEngine === 'google' && mapInstanceRef.current) {
-      mapInstanceRef.current.panTo(displayCenter);
-      mapInstanceRef.current.setZoom(12);
-    } else {
-      setRadarPan({ x: 0, y: 0 });
-      setRadarZoom(1);
-    }
+    setRadarPan({ x: 0, y: 0 });
+    setRadarZoom(1);
   };
 
   // Fit all candidates and workplace in view
   const handleFitAll = () => {
-    if (mapEngine === 'google' && mapInstanceRef.current && (window as any).google?.maps) {
-      const google = (window as any).google;
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend(workplaceCoords);
-      visibleCandidates.forEach((c) => bounds.extend(c.resolvedCoords));
-      mapInstanceRef.current.fitBounds(bounds);
-    } else {
-      setRadarPan({ x: 0, y: 0 });
-      setRadarZoom(1);
-    }
+    setRadarPan({ x: 0, y: 0 });
+    setRadarZoom(1);
   };
 
   // Drag handlers for Radar Map
@@ -514,56 +181,24 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Engine Switcher */}
-          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-700 p-0.5 bg-neutral-100/80 dark:bg-neutral-800/80 text-[10px] font-mono-code mr-1">
+          <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
             <button
               type="button"
-              onClick={() => setMapEngine('radar')}
-              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
-                mapEngine === 'radar'
-                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-              }`}
-              title="切换为本地高精度动态雷达等时圈（离线高可用）"
+              onClick={() => setRadarZoom((z) => Math.min(2.5, z + 0.2))}
+              title="放大"
+              className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
             >
-              <Compass className="w-3 h-3" />
-              <span>动态雷达等时圈</span>
+              <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
-              onClick={() => setMapEngine('google')}
-              className={`px-2 py-1 rounded flex items-center gap-1 transition-all cursor-pointer ${
-                mapEngine === 'google'
-                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                  : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-              }`}
-              title="切换为 Google Maps 实景底图"
+              onClick={() => setRadarZoom((z) => Math.max(0.6, z - 0.2))}
+              title="缩小"
+              className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border-l border-neutral-200 dark:border-neutral-700"
             >
-              <Layers className="w-3 h-3" />
-              <span>Google 地图</span>
+              <ZoomOut className="w-3.5 h-3.5" />
             </button>
           </div>
-
-          {mapEngine === 'radar' && (
-            <div className="flex items-center rounded border border-neutral-200 dark:border-neutral-700 overflow-hidden mr-1">
-              <button
-                type="button"
-                onClick={() => setRadarZoom((z) => Math.min(2.5, z + 0.2))}
-                title="放大"
-                className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setRadarZoom((z) => Math.max(0.6, z - 0.2))}
-                title="缩小"
-                className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border-l border-neutral-200 dark:border-neutral-700"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
 
           <button
             type="button"
@@ -706,39 +341,15 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
         </div>
       </div>
 
-      {/* Network / Auth Notice Banner */}
-      {authErrorNotice && (
-        <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            <span>Google 地图网络连接受限，已无缝切换至「高精度动态雷达等时圈」（等时圈与测算均正常工作）</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAuthErrorNotice(false)}
-            className="hover:opacity-75 font-mono-code text-[11px] underline ml-2 cursor-pointer"
-          >
-            忽略
-          </button>
-        </div>
-      )}
-
       {/* Main Map Viewport */}
       <div
         className="relative flex-1 min-h-[420px] sm:min-h-[480px] w-full bg-slate-950 overflow-hidden select-none"
-        onMouseDown={mapEngine === 'radar' ? handleMouseDown : undefined}
-        onMouseMove={mapEngine === 'radar' ? handleMouseMove : undefined}
-        onMouseUp={mapEngine === 'radar' ? handleMouseUp : undefined}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
       >
-        {/* Google Maps Container */}
-        <div
-          ref={mapContainerRef}
-          className={`absolute inset-0 w-full h-full ${mapEngine === 'google' ? 'block' : 'hidden'}`}
-        />
-
         {/* Dynamic Radar Commute Heatmap Canvas Engine */}
-        {mapEngine === 'radar' && (
-          <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing bg-radial from-slate-900 to-slate-950">
             <div
               className="relative w-full h-full transition-transform duration-75 ease-out"
               style={{
@@ -863,8 +474,7 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                 );
               })}
             </div>
-          </div>
-        )}
+        </div>
 
         {/* Selected Candidate Commute Inspector Card */}
         {activeCandidate && (
