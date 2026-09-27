@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>租房规划 // RENTAL DOSSIER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="grain-overlay"></div>
+<div id="cursor"></div>
+
+<main class="wrap">
+
+  <header class="hero">
+    <div class="tag tag-rose">
+      <span class="tag-line"></span>
+      RENTER'S DOSSIER // 租房决策档案 · LOCAL-FIRST
+    </div>
+    <h1>租房规划。</h1>
+    <div class="hero-grid">
+      <p class="lede">
+        一份可交互的租房决策台账 —— 预算测算、通勤对比、房源打分、看房清单与时间计划放在同一张桌面上。
+        房源按真实月支出与首期现金核算,六维加权评分实时排名。数据只存本机,可导出 JSON 备份。
+      </p>
+      <div class="hero-note">
+        <span class="note-title">SIX LEDGERS</span>
+        <span>预算 // 通勤 // 房源 // 看房 // 时间 // 案例</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="budget">01 // 预算测算</button>
+    <button class="tab" data-tab="commute">02 // 通勤对比</button>
+    <button class="tab" data-tab="listings">03 // 房源对比</button>
+    <button class="tab" data-tab="checklist">04 // 看房清单</button>
+    <button class="tab" data-tab="timeline">05 // 时间计划</button>
+    <button class="tab" data-tab="case">06 // 案例参考</button>
+  </nav>
+
+  <!-- 01 预算测算 -->
+  <section class="panel active" id="panel-budget">
+    <div class="panel-head">
+      <h2>预算测算</h2>
+      <p>RENT CEILING · UPFRONT CASH · DECISION BASELINE</p>
+    </div>
+
+    <div class="bento">
+      <div class="card">
+        <h3>收入与开销 // INCOME</h3>
+        <div class="field-grid">
+          <label>月到手收入 (元)
+            <input type="number" id="income" min="0" placeholder="15000" />
+          </label>
+          <label>其他月收入 (元)
+            <input type="number" id="extra" min="0" placeholder="0" />
+          </label>
+          <label>房租占比上限 (%)
+            <input type="number" id="ratio" min="1" max="100" step="1" />
+          </label>
+          <label>预估水电物业/月 (元)
+            <input type="number" id="utilities" min="0" />
+          </label>
+          <label>其他月开销 (元)
+            <input type="number" id="monthly" min="0" placeholder="餐饮交通日用等" />
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>首次入住支出 // UPFRONT</h3>
+        <div class="field-grid">
+          <label>押一付
+            <select id="payMonths">
+              <option value="1">付一</option>
+              <option value="2">付二</option>
+              <option value="3" selected>付三</option>
+              <option value="6">付六</option>
+            </select>
+          </label>
+          <label>中介费 (元)
+            <input type="number" id="agency" min="0" placeholder="0 或半月租" />
+          </label>
+          <label>搬家与购置预算 (元)
+            <input type="number" id="misc" min="0" />
+          </label>
+        </div>
+        <p class="hint">首次支出按「建议房租上限」估算:押金 + 首期租金 + 中介费 + 搬家购置。单套房源的实际首期现金在「房源对比」里逐套核算。</p>
+      </div>
+
+      <div class="card">
+        <h3>决策基准 // BASELINE</h3>
+        <div class="field-grid">
+          <label>月度支出上限 (元)
+            <input type="number" id="spendCap" min="0" placeholder="含房租水电通勤全部月支出" />
+          </label>
+          <label>单程通勤上限 (分钟)
+            <input type="number" id="commuteLimit" min="0" placeholder="45" />
+          </label>
+          <label>月工作天数
+            <input type="number" id="workDays" min="0" max="31" step="1" placeholder="22" />
+          </label>
+          <label>通勤时间估值 (元/小时)
+            <input type="number" id="timeValue" min="0" placeholder="0 = 不折算" />
+          </label>
+        </div>
+        <p class="hint">基准线用于给房源打标:超预算 / 超通勤 / 高负担。通勤时间估值把路途时间折进月支出。</p>
+      </div>
+    </div>
+
+    <div class="card card-result result-wide">
+      <h3>测算结果 // VERDICT</h3>
+      <div class="result-grid">
+        <div>
+          <div class="stat-big">
+            <span class="stat-label">建议房租上限 / 月</span>
+            <span class="stat-value" id="out-rent">—</span>
+          </div>
+          <div class="verdict" id="out-verdict"></div>
+        </div>
+        <div class="stat-rows">
+          <div class="stat-row"><span>首次入住总支出</span><b id="out-upfront">—</b></div>
+          <div class="stat-row"><span>房租实际占比</span><b id="out-share">—</b></div>
+          <div class="stat-row"><span>月度结余 (按上限房租)</span><b id="out-left">—</b></div>
+          <div class="stat-row"><span>全年住房成本</span><b id="out-year">—</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 通勤对比 -->
+  <section class="panel" id="panel-commute">
+    <div class="panel-head">
+      <h2>通勤对比</h2>
+      <p>COMMUTE COST PER CANDIDATE AREA</p>
+    </div>
+
+    <div class="stats-strip">
+      <div class="stat-chip"><span>平均单程</span><b id="cm-avg">—</b></div>
+      <div class="stat-chip"><span>每月路途耗时</span><b id="cm-hours">—</b></div>
+      <div class="stat-chip"><span>每月交通费合计</span><b id="cm-cost">—</b></div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="ledger" id="commute-table">
+        <thead>
+          <tr>
+            <th>区域 / 小区</th>
+            <th>到公司单程(分钟)</th>
+            <th>交通方式</th>
+            <th>月交通费(元)</th>
+            <th>备注</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="commute-body"></tbody>
+      </table>
+    </div>
+    <button class="btn-add" id="cm-add">+ 添加区域</button>
+  </section>
+
+  <!-- 03 房源对比 -->
+  <section class="panel" id="panel-listings">
+    <div class="panel-head">
+      <h2>房源对比</h2>
+      <p>REAL MONTHLY COST · UPFRONT CASH · WEIGHTED SCORING</p>
+    </div>
+
+    <div class="card weights-card">
+      <h3>评分权重 // WEIGHTS</h3>
+      <div class="weights" id="weights"></div>
+      <p class="hint">性价比与通勤按表内数据自动折算,房况/采光/安静/配套为看房后的人工评分(1–5)。调整权重实时重排。</p>
+    </div>
+
+    <div class="table-wrap">
+      <table class="ledger" id="listing-table">
+        <thead>
+          <tr>
+            <th>房源</th>
+            <th>月租</th>
+            <th>月总支出</th>
+            <th>首期现金</th>
+            <th>通勤</th>
+            <th>标记</th>
+            <th>评分</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="listing-body"></tbody>
+      </table>
+    </div>
+    <button class="btn-add" id="ls-add">+ 添加房源</button>
+    <p class="hint">月总支出 = 月租 + 物业 + 水电燃气网络 + 其他月支出 + 通勤费 + 通勤时间成本;首期现金 = 押金 + 首期租金 + 中介费(押金可退,不计成本)。</p>
+  </section>
+
+  <!-- 04 看房清单 -->
+  <section class="panel" id="panel-checklist">
+    <div class="panel-head">
+      <h2>看房清单</h2>
+      <p>VIEWING CHECKLIST // 现场逐项核对,可加自定义项</p>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-label"><span>PROGRESS</span><b id="cl-pct">0%</b></div>
+      <div class="progress-track"><div class="progress-fill" id="cl-bar"></div></div>
+    </div>
+
+    <div id="checklist"></div>
+    <button class="btn-add" id="cl-reset">恢复预设清单</button>
+  </section>
+
+  <!-- 05 时间计划 -->
+  <section class="panel" id="panel-timeline">
+    <div class="panel-head">
+      <h2>时间计划</h2>
+      <p>OPERATION TIMELINE // 从找房到入住的推进表</p>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-label"><span>PROGRESS</span><b id="tl-pct">0%</b></div>
+      <div class="progress-track"><div class="progress-fill" id="tl-bar"></div></div>
+    </div>
+
+    <ul class="timeline" id="timeline-list"></ul>
+    <button class="btn-add" id="tl-add">+ 添加事项</button>
+  </section>
+
+  <!-- 06 案例参考 -->
+  <section class="panel" id="panel-case">
+    <div class="panel-head">
+      <h2>案例参考</h2>
+      <p>CASE DOSSIER // 乌鲁木齐 · 700 合租规划 · 2026-09</p>
+    </div>
+
+    <p class="lede case-lede">
+      实习试用期、月薪 4000、转正 5000+。现房 500 元交到 9 月底,9 月 10 日首发薪。
+      700 预算做合租次卧完全可行 —— <b>核心约束不是月租,而是首付与债务时间点。</b>
+    </p>
+
+    <div class="stats-strip">
+      <div class="stat-chip"><span>预算上限 / 转正占比 14%</span><b>¥700</b></div>
+      <div class="stat-chip"><span>押一付一首付 · 9.10 刚好覆盖</span><b>¥1400</b></div>
+      <div class="stat-chip"><span>9 月还债 · 京东 678 + 花呗 516</span><b>¥1194</b></div>
+      <div class="stat-chip"><span>选址轴 · 单程 30min 内</span><b>1 号线</b></div>
+    </div>
+
+    <h3 class="case-sub">四方案对比 // FOUR OPTIONS</h3>
+    <div class="opts">
+      <div class="card opt">
+        <div class="opt-tag"><i>A · 过渡留守</i><span>HOLD</span></div>
+        <h4>留守 500 现房</h4>
+        <div class="opt-price">¥580 <small>/月 · 500 房租 + 80 均摊 · 首付 0</small></div>
+        <ul>
+          <li>0 成本撑过 9 月债务高峰</li>
+          <li>不用借钱、不断档</li>
+          <li>有猫、有“猫腻”,居住体验差</li>
+        </ul>
+        <p class="opt-verdict"><b>过渡到 10 月底</b>,债务缓过来再搬,别硬扛到年底。</p>
+      </div>
+      <div class="card opt rec">
+        <div class="opt-tag"><i>B · 首选推荐</i><span>RECOMMENDED</span></div>
+        <h4>合租次卧 · 地铁沿线</h4>
+        <div class="opt-price">¥680 – 780 <small>/月 · 650±50 + 80 均摊 · 首付 1400</small></div>
+        <ul>
+          <li>预算内,室友分摊物业暖气</li>
+          <li>1 号线小西门 / 南门 / 北门 / 铁路局一带房源多</li>
+          <li>需磨合:隔音、卫生、作息要当面确认</li>
+        </ul>
+        <p class="opt-verdict"><b>首选。卡 700 上限 + 只签押一付一</b>,9.20 看房、10.1 搬。</p>
+      </div>
+      <div class="card opt dead">
+        <div class="opt-tag"><i>C · 超预算否决</i><span>OVER BUDGET</span></div>
+        <h4>合租主卧带卫</h4>
+        <div class="opt-price">¥900+ <small>/月 · 800–1000 + 均摊 · 首付 1800+</small></div>
+        <ul>
+          <li>独立、有卫,体验最好</li>
+          <li>直接挤压 9 月还债(京东 678 + 花呗 516)</li>
+          <li>首付不够,得动债或借钱</li>
+        </ul>
+        <p class="opt-verdict"><b>否决</b>,除非转正涨薪后再升级。</p>
+      </div>
+      <div class="card opt dead">
+        <div class="opt-tag"><i>D · 翻倍否决</i><span>OVER BUDGET</span></div>
+        <h4>整租一居室</h4>
+        <div class="opt-price">¥1300 – 1600 <small>/月 · 首付 3000+ · 占比超 30%</small></div>
+        <ul>
+          <li>自由、无磨合</li>
+          <li>月租翻倍 + 首付三倍,9–10 月现金流断裂</li>
+        </ul>
+        <p class="opt-verdict"><b>否决</b>,现阶段不考虑。</p>
+      </div>
+    </div>
+
+    <h3 class="case-sub">现金流要点 // CASHFLOW</h3>
+    <div class="card">
+      <div class="stat-row"><span>9.10 发薪 4000 分配:还家里 500 + 9 月还债 1194 + 留生活 700 + 房首付 1300</span><b>= 3694 ≤ 4000,余 306</b></div>
+      <div class="stat-row"><span>若选主卧 900(首付 1800)</span><b class="bad">= 4194 &gt; 4000,缺口 194</b></div>
+    </div>
+
+    <h3 class="case-sub">执行时间线 // TIMELINE</h3>
+    <div class="card case-steps">
+      <div class="case-step">
+        <div class="case-date">09 / 10 发薪日</div>
+        <div>
+          <h4>先还债,不订房</h4>
+          <p>4000 到账:还家里 500 → 留吃饭坐车 700 → 预留京东 678(9.19)+ 花呗 516(9.25)+ 朋友 200。剩余约 1400 封存为房首付,一分不提前动。</p>
+        </div>
+      </div>
+      <div class="case-step">
+        <div class="case-date">09 / 20 看房周</div>
+        <div>
+          <h4>只看押一付一的次卧</h4>
+          <p>目标 650±50,地铁 1 号线单程 30 分钟内。暖气费谁出必须问清(乌鲁木齐关键项),包物业优先。当天不交定金,回来对比再定。</p>
+        </div>
+      </div>
+      <div class="case-step">
+        <div class="case-date">10 / 01 搬家</div>
+        <div>
+          <h4>9 月底房能续半月就续,别断档</h4>
+          <p>首付 1300–1400 一次付清,合同写清押付方式、水电均摊、室友规矩。10 月工资后债务压力解除,再考虑是否升级。</p>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="case-sub">看房四问 // VIEWING</h3>
+    <div class="ask">
+      <div class="card q"><div class="q-no">Q — 01</div><p>押付方式?可否押一付一 / 月付?</p><small>凡要求押一付三的一律 pass,你的首付只够 1400 档。</small></div>
+      <div class="card q"><div class="q-no">Q — 02</div><p>水电燃 + 暖气 + 物业怎么摊?</p><small>乌鲁木齐暖气费是大头,必须问清包不包、按人头还是按房间。</small></div>
+      <div class="card q"><div class="q-no">Q — 03</div><p>室友几人?作息?养宠物?</p><small>你吃过“有猫”的亏,这次当面确认 + 写进合同补充条款。</small></div>
+      <div class="card q"><div class="q-no">Q — 04</div><p>隔音、卫生、门锁、中介费?</p><small>次卧重点听隔音、看公区卫生、确认独立门锁;中介费超过半月租就砍。</small></div>
+    </div>
+
+    <div class="case-actions">
+      <button class="btn-add" id="case-load">载入案例数据(四方案 + 基准参数)</button>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>RENTAL DOSSIER // 本地存储,可导出 JSON 备份 · 案例数据来源 0921《租房决策台账》</span>
+    <span class="foot-actions">
+      <button class="btn-reset" id="btn-export">导出 JSON</button>
+      <button class="btn-reset" id="btn-import">导入 JSON</button>
+      <input type="file" id="file-import" accept="application/json,.json" hidden />
+      <button class="btn-reset" id="reset">RESET ALL DATA</button>
+    </span>
+  </footer>
+
+</main>
+
+<!-- 房源编辑弹窗 -->
+<div class="modal-scrim" id="modal" hidden>
+  <div class="modal" role="dialog" aria-label="房源录入表单">
+    <header class="modal-head">
+      <div>
+        <div class="mono" id="modal-tag">NEW RECORD</div>
+        <h3 id="modal-title">添加房源</h3>
+      </div>
+      <button class="btn-del" id="modal-close" type="button">关闭</button>
+    </header>
+
+    <div class="modal-body">
+      <fieldset class="form-group">
+        <legend class="mono">01 // 基本信息</legend>
+        <label class="ff ff-wide">小区 / 房源名称 *
+          <input type="text" id="f-name" placeholder="望京西园三区 · 南向一居" />
+        </label>
+        <div class="ff-row">
+          <label class="ff">区域 / 位置<input type="text" id="f-district" placeholder="朝阳 · 望京" /></label>
+          <label class="ff">户型<input type="text" id="f-layout" placeholder="一室一厅" /></label>
+        </div>
+        <div class="ff-row">
+          <label class="ff">面积 (㎡)<input type="number" id="f-area" min="0" step="0.5" /></label>
+          <label class="ff">月租金 (元) *<input type="number" id="f-rent" min="0" step="10" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="form-group">
+        <legend class="mono">02 // 月度成本</legend>
+        <div class="ff-row">
+          <label class="ff">物业费 (元/月)<input type="number" id="f-property" min="0" /></label>
+          <label class="ff">水电燃气网络 (元/月)<input type="number" id="f-utils" min="0" /></label>
+        </div>
+        <label class="ff ff-wide">其他月支出 (车位/家政等)<input type="number" id="f-other" min="0" /></label>
+      </fieldset>
+
+      <fieldset class="form-group">
+        <legend class="mono">03 // 押付与手续费</legend>
+        <div class="ff-row">
+          <label class="ff">押金 (个月租金)<input type="number" id="f-deposit" min="0" step="0.5" /></label>
+          <label class="ff">付款周期
+            <select id="f-pay">
+              <option value="0">无预付</option>
+              <option value="1">付 1 个月</option>
+              <option value="3">付 3 个月</option>
+              <option value="6">付 6 个月</option>
+              <option value="12">付 12 个月</option>
+            </select>
+          </label>
+        </div>
+        <label class="ff ff-wide">中介费 (元,一次性)<input type="number" id="f-agency" min="0" /></label>
+      </fieldset>
+
+      <fieldset class="form-group">
+        <legend class="mono">04 // 通勤</legend>
+        <div class="ff-row">
+          <label class="ff">单程通勤 (分钟)<input type="number" id="f-minutes" min="0" /></label>
+          <label class="ff">通勤费 (元/月)<input type="number" id="f-ccost" min="0" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="form-group">
+        <legend class="mono">05 // 品质评分 (1 差 – 5 好)</legend>
+        <div class="ff-row">
+          <label class="ff">房况 · 家具家电<select id="f-cond"></select></label>
+          <label class="ff">采光 · 朝向楼层<select id="f-light"></select></label>
+        </div>
+        <div class="ff-row">
+          <label class="ff">安静 · 噪音邻居<select id="f-noise"></select></label>
+          <label class="ff">配套 · 超市地铁<select id="f-fac"></select></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="form-group">
+        <legend class="mono">06 // 备注</legend>
+        <div class="ff-row">
+          <label class="ff">楼层 / 朝向<input type="text" id="f-floor" placeholder="中层/朝南" /></label>
+        </div>
+        <label class="ff ff-wide">备注 / 优缺点<textarea id="f-note" rows="3" placeholder="采光好、独立卫生间;临街有噪音……"></textarea></label>
+      </fieldset>
+    </div>
+
+    <footer class="modal-foot">
+      <button class="btn-del danger" id="f-delete" type="button">删除</button>
+      <span class="spacer"></span>
+      <button class="btn-del" id="f-cancel" type="button">取消</button>
+      <button class="btn-save" id="f-save" type="button">保存房源</button>
+    </footer>
+  </div>
+</div>
+
+</body>
+</html>
