@@ -20,7 +20,7 @@ function argOf(name, fallback) {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 }
 
-const API = process.env.API_BASE || 'http://localhost:3001';
+const API = process.env.API_BASE || 'http://localhost:3000';
 const CITY_SUB = argOf('city-sub', process.env.CITY_58_SUB || 'xj');
 const CITY_LABEL = argOf('city-label', '乌鲁木齐');
 const MAX_PAGES = Math.max(1, parseInt(argOf('pages', '3'), 10) || 3);
