@@ -9,17 +9,29 @@ const ROUTE_CACHE_PATH = path.resolve(PROJECT_ROOT, 'data-route-cache.json');
 
 export type RouteCacheEntry = { minutes: number; distanceMeters: number; cachedAt: number; segments?: any[] };
 
+// 批量通勤会按条数反复读缓存，9.7MB 文件逐条 JSON.parse 不可接受：
+// 内存驻留一份，按 mtime 失效（外部采集/导入改写文件后自动重载）
+let memoCache: Record<string, RouteCacheEntry> | null = null;
+let memoMtimeMs = 0;
+
 export function readRouteCache(): Record<string, RouteCacheEntry> {
   try {
-    return JSON.parse(fs.readFileSync(ROUTE_CACHE_PATH, 'utf-8'));
+    const mtimeMs = fs.statSync(ROUTE_CACHE_PATH).mtimeMs;
+    if (memoCache && mtimeMs === memoMtimeMs) return memoCache;
+    const parsed = JSON.parse(fs.readFileSync(ROUTE_CACHE_PATH, 'utf-8'));
+    memoCache = parsed;
+    memoMtimeMs = mtimeMs;
+    return parsed;
   } catch {
-    return {};
+    return memoCache ?? {};
   }
 }
 
 export function writeRouteCache(cache: Record<string, RouteCacheEntry>) {
   try {
     fs.writeFileSync(ROUTE_CACHE_PATH, JSON.stringify(cache, null, 1), 'utf-8');
+    memoCache = cache;
+    memoMtimeMs = fs.statSync(ROUTE_CACHE_PATH).mtimeMs;
   } catch (e: any) {
     console.warn('route cache write failed:', e?.message || e);
   }

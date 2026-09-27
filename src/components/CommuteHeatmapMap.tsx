@@ -73,7 +73,8 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
   const [amapNotice, setAmapNotice] = useState('');
   const setTransitMode = onTransitModeChange;
   const [showHeatOverlay, setShowHeatOverlay] = useState(true);
-  const [onlyShowWithinLimit, setOnlyShowWithinLimit] = useState(false);
+  // 默认只看通勤达标房源，超出上限的噪音默认不进视野（可手动关）
+  const [onlyShowWithinLimit, setOnlyShowWithinLimit] = useState(true);
   const [activeCandidate, setActiveCandidate] = useState<EnrichedCandidate | null>(null);
 
   // Radar pan & zoom state
