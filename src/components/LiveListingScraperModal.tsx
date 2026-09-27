@@ -66,7 +66,9 @@ export const LiveListingScraperModal: React.FC<LiveListingScraperModalProps> = (
   const [freshness, setFreshness] = useState<string | null>(null);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [snapshotMsg, setSnapshotMsg] = useState<string | null>(null);
+  const [collectBusy, setCollectBusy] = useState(false);
 
+  // 早返回必须在全部 Hooks 之后：否则 isOpen 翻转时 hooks 数量变化，React 直接崩白屏
   if (!isOpen) return null;
 
   const handleFetchListings = async () => {
@@ -117,7 +119,6 @@ export const LiveListingScraperModal: React.FC<LiveListingScraperModalProps> = (
   // One-click browser collection: server spawns a real Edge session that opens
   // 58 list pages, auto-paginates, and feeds the existing import pipeline.
   // A visible browser window may pop up to let you solve an anti-bot slider.
-  const [collectBusy, setCollectBusy] = useState(false);
   const handleBrowserCollect = async () => {
     setCollectBusy(true);
     setSnapshotMsg('正在启动真实浏览器自动采集（可能弹出 Edge 窗口，若遇验证码请拖动滑块）…');
