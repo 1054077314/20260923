@@ -718,7 +718,11 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-semibold truncate">{sel.title}</span>
-                    {sel.isComfortable ? (
+                    {sel.commuteMin == null ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 text-neutral-500 border border-neutral-300 dark:bg-neutral-800 dark:text-neutral-400 dark:border-neutral-700 shrink-0 font-semibold">
+                        路线不可用
+                      </span>
+                    ) : sel.isComfortable ? (
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 shrink-0 font-semibold">
                         舒适
                       </span>
