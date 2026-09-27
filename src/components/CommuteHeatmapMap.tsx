@@ -10,14 +10,11 @@ import {
   Compass,
   Navigation,
   Clock,
-  Briefcase,
   Layers,
   ZoomIn,
   ZoomOut,
   MapPin,
-  CheckCircle2,
   AlertTriangle,
-  Sliders,
   Flame,
   Bike,
   Train,
@@ -28,7 +25,6 @@ import {
 } from 'lucide-react';
 import {
   EnrichedCommuteCandidate,
-  annualHoursFromOneWay,
   enrichListingsForMap,
   getWalkToStation,
 } from '../utils/commuteStats';
@@ -694,95 +690,6 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
           </div>
         )}
 
-        {/* Selected Candidate Commute Inspector Card */}
-        {activeCandidate && (
-          <div className="absolute bottom-3 left-3 right-3 sm:right-auto sm:max-w-md p-3.5 rounded-xl bg-slate-900/95 text-white backdrop-blur-md shadow-2xl border border-slate-700 z-30 animate-fadeIn text-xs space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="font-bold text-white line-clamp-1 text-sm">
-                    {activeCandidate.title || activeCandidate.community}
-                  </div>
-                  {activeCandidate.isComfortable ? (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold font-mono-code">
-                      舒适通勤圈
-                    </span>
-                  ) : activeCandidate.isWithinLimit ? (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950 text-amber-300 border border-amber-800 font-semibold font-mono-code">
-                      符合时限要求
-                    </span>
-                  ) : (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-950 text-rose-300 border border-rose-800 font-semibold font-mono-code">
-                      超出设定上限 {activeCandidate.overMinutes} 分钟
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-1">
-                  <MapPin className="w-3 h-3 text-indigo-400 shrink-0" />
-                  <span className="truncate">{activeCandidate.community} · {activeCandidate.address || '地址待更新'}</span>
-                </div>
-              </div>
-
-              <div className="text-right shrink-0 flex items-center gap-1.5">
-                {activeCandidate.sourceUrl && (
-                  <a
-                    href={activeCandidate.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-600 flex items-center gap-1 text-[10px] font-mono-code"
-                    title={`打开原始挂牌页（${activeCandidate.sourcePlatform || '来源平台'}）`}
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    直达
-                  </a>
-                )}
-                <div>
-                  <div className="text-base font-bold font-mono-code text-rose-400">
-                    ¥{activeCandidate.rent}
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono-code">/月</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Commute Route Breakdown Grid */}
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-[11px]">
-              <div>
-                <span className="text-slate-400 block">单程总耗时</span>
-                <span className={`font-mono-code font-bold ${
-                  activeCandidate.isComfortable
-                    ? 'text-emerald-400'
-                    : activeCandidate.isWithinLimit
-                    ? 'text-amber-400'
-                    : 'text-rose-400'
-                }`}>
-                  {activeCandidate.commuteMin} 分钟
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">步行至首乘站</span>
-                <span className="font-mono-code font-bold text-slate-200">
-                  {(() => {
-                    const ws = getWalkToStation(routeSegments[activeCandidate.id]);
-                    if (ws) return `${ws.walkMin} 分钟 · ${ws.station}`;
-                    if (activeCandidate.walkToSubwayMin != null)
-                      return `${activeCandidate.walkToSubwayMin} 分钟`;
-                    return activeCandidate.commuteMin != null ? '路线无步行段' : '—';
-                  })()}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block">往返全年累耗</span>
-                <span className="font-mono-code font-bold text-slate-200">
-                  {activeCandidate.commuteMin != null
-                    ? `${annualHoursFromOneWay(activeCandidate.commuteMin, 5)} 小时/年`
-                    : '—'}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* 选中房源的真实公交路线摘要 + 多房源切换对比 */}
         {(() => {
           const list = visibleCandidates;
@@ -811,6 +718,22 @@ export const CommuteHeatmapMap: React.FC<CommuteHeatmapMapProps> = ({
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-semibold truncate">{sel.title}</span>
+                    {sel.isComfortable ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 shrink-0 font-semibold">
+                        舒适
+                      </span>
+                    ) : sel.isWithinLimit ? (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800 shrink-0 font-semibold">
+                        达标
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-100 text-rose-700 border border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800 shrink-0 font-semibold">
+                        超时+{sel.overMinutes}m
+                      </span>
+                    )}
+                    <span className="font-mono-code font-bold text-rose-500 shrink-0">
+                      ¥{sel.rent}/月
+                    </span>
                     {mins != null ? (
                       <span className="font-mono-code font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
                         {mins} min · 高德实际路线
