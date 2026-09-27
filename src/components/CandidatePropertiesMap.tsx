@@ -357,11 +357,10 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
         onMouseMove={mapEngine === 'radar' ? handleMouseMove : undefined}
         onMouseUp={mapEngine === 'radar' ? handleMouseUp : undefined}
       >
-        {/* AMap Basemap Container */}
-        <div
-          ref={mapContainerRef}
-          className={`absolute inset-0 w-full h-full ${mapEngine === 'amap' ? 'block' : 'hidden'}`}
-        />
+        {/* AMap Basemap Container（AMap 会改写容器为 relative，需外层壳撑高） */}
+        <div className={`absolute inset-0 ${mapEngine === 'amap' ? 'block' : 'hidden'}`}>
+          <div ref={mapContainerRef} className="w-full h-full" />
+        </div>
 
         {/* Interactive Geospatial Radar Canvas Engine */}
         {mapEngine === 'radar' && (
