@@ -25,18 +25,15 @@ export function writeSnapshot(listings: SnapshotListing[]): void {
 }
 
 /**
- * 按 rentMode 合并：导入的页面只替换自己那一种模式，
- * 单次刷新绝不会静默吞掉另一种模式的记录。同 id 也视为被导入覆盖。
+ * 按 id 增量合并：导入的记录覆盖同 id 旧记录，其余旧记录全部保留。
+ * 部分采集（如被反爬只抓到 1 页）不会吞掉同模式的旧房源；整页失效靠重新采集覆盖。
  */
 export function mergeSnapshot(
   existing: SnapshotListing[],
   imported: SnapshotListing[]
 ): { merged: SnapshotListing[]; kept: SnapshotListing[] } {
-  const importedModes = new Set(imported.map((l) => l?.rentMode));
   const importedIds = new Set(imported.map((l) => l?.id));
-  const kept = existing.filter(
-    (l) => l && !importedModes.has(l.rentMode) && !importedIds.has(l.id)
-  );
+  const kept = existing.filter((l) => l && !importedIds.has(l.id));
   return { merged: [...kept, ...imported], kept };
 }
 
