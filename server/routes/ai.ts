@@ -8,6 +8,9 @@ export const aiRouter = express.Router();
 /** 小区周边配套检索（Google Search Grounding） */
 aiRouter.post('/api/amenities-search', async (req: Request, res: Response) => {
   const { city, community, address } = req.body || {};
+  if (!community && !address) {
+    return res.status(400).json({ success: false, error: '请提供小区名称或详细地址' });
+  }
   const outcome = await searchAmenities({
     city: String(city || ''),
     community: String(community || ''),

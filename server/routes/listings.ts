@@ -5,6 +5,7 @@ import { DEFAULT_CITY } from '../config.js';
 import { CITY_TO_58_CODE } from '../cityDict.js';
 import {
   describeSnapshotSource,
+  isCityCovered,
   readSnapshot,
   snapshotExists,
   pickSnapshotListings,
@@ -30,7 +31,7 @@ listingsRouter.get('/api/58-snapshot', (_req: Request, res: Response) => {
     if (snapshot.length === 0) {
       return res.json({ success: true, city, total: 0, listings: [], dataSource: null });
     }
-    if (city && !city.includes(DEFAULT_CITY) && !city.includes('新疆')) {
+    if (city && !isCityCovered(city)) {
       return res.json({ success: true, city, total: 0, listings: [], dataSource: null });
     }
     return res.json({
@@ -137,7 +138,8 @@ listingsRouter.post('/api/collect-58', async (req: Request, res: Response) => {
   const outcome = await collect58({
     city: String(city),
     pages: Number(pages),
-    headful: Boolean(headful),
+    // Boolean("false") 也是 true：只认 true/'true'，其余一律当作无头
+    headful: headful === true || String(headful) === 'true',
     modes: String(modes),
   });
   if (!outcome.ok) {

@@ -53,8 +53,7 @@ export function liveListingsPrompt(input: LiveListingsPromptInput): string {
 请检索并提取 4 至 6 套当前区域符合预算的真实/近期房源清单。
 （下例仅示意键名、枚举与数字类型，数值请填真实检索结果，不得照抄。）
 
-必须在回复末尾提供一个标准的 JSON 代码块，严格遵循如下格式（不要修改键名）：
-\`\`\`json
+回复必须是纯 JSON 数组（结构化输出），不要代码块、不要任何多余文字，键名严格如下：
 [
   {
     "title": "房源标题（如：翠苑一区 朝南主卧独卫 带阳台）",
@@ -75,7 +74,6 @@ export function liveListingsPrompt(input: LiveListingsPromptInput): string {
     "notes": "房东直租无中介费，看房需提前预约"
   }
 ]
-\`\`\`
 
 注意：
 1. landlordType 只能是 "direct_landlord" (房东直租), "intermediary" (正规中介/经纪人), "brand_apartment" (品牌长租公寓), "sublessor" (个人转租) 之一。
