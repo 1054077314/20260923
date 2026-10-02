@@ -111,9 +111,10 @@ export function sortCandidates(
       return bPinned - aPinned;
     }
 
+    // 三个口径统一产出升序 result，尾部再按 sortOrder 翻转
     let result = 0;
     if (sortBy === 'score') {
-      result = (b.weightedScore || 0) - (a.weightedScore || 0);
+      result = (a.weightedScore || 0) - (b.weightedScore || 0);
     } else if (sortBy === 'rent') {
       // 未知租金（0）一律沉底，升序降序都不参与比较
       const aUnknown = a.rent <= 0;
@@ -126,6 +127,6 @@ export function sortCandidates(
       const bMin = routeMinutes?.[b.id] ?? b.commuteMinutes ?? 9999;
       result = aMin - bMin;
     }
-    return sortOrder === 'desc' ? result : -result;
+    return sortOrder === 'asc' ? result : -result;
   });
 }

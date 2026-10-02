@@ -139,8 +139,8 @@ export function exportPlanToMarkdown(plan: RentalPlan): string {
 ### ${idx + 1}. ${c.title} 【综合得分：${c.weightedScore || 0} 分】
 - **小区/地址**：${c.community} (${c.address || '无详细地址'})
 - **月租金**：${c.rent > 0 ? `¥${c.rent}` : '租金待核'} / 月 (杂费合计后综合月支出: ¥${monthlyTotal}/月)
-- **通勤表现**：近 ${c.subwayStation}，步行 ${c.walkToSubwayMin} 分钟，单程耗时约 ${c.commuteMinutes} 分钟
-- **房屋属性**：${c.areaSqMeters}㎡ ｜ ${c.floor} ｜ ${c.utilitiesType === 'residential' ? '民水民电' : c.utilitiesType === 'commercial' ? '商水商电' : '水电待核实'} ｜ ${c.depositTerms}
+- **通勤表现**：${c.subwayStation ? `近 ${c.subwayStation}` : '地铁信息待查'}${c.walkToSubwayMin != null ? `，步行 ${c.walkToSubwayMin} 分钟` : ''}${c.commuteMinutes != null ? `，单程耗时约 ${c.commuteMinutes} 分钟` : ''}
+- **房屋属性**：${c.areaSqMeters != null ? `${c.areaSqMeters}㎡` : '面积待查'} ｜ ${c.floor || '楼层待查'} ｜ ${c.utilitiesType === 'residential' ? '民水民电' : c.utilitiesType === 'commercial' ? '商水商电' : '水电待核实'} ｜ ${c.depositTerms || '押金待核实'}
 - **优势亮点**：${c.pros.join('、') || '无'}
 - **潜在不足**：${c.cons.join('、') || '无'}
 - **实地看房状态**：${c.inspectionStatus} ${c.inspectionDate ? `(${c.inspectionDate})` : ''}
