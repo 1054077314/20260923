@@ -7,7 +7,7 @@ export interface AmenitiesPromptInput {
 }
 
 export function amenitiesPrompt({ city, community, address }: AmenitiesPromptInput): string {
-  return `请针对中国城市【${city || '该城市'}】的房源小区【${community || address}】（地址：${address || community}），使用Google网络搜索检索真实最新的周边生活配套设施和租客生活评价。
+  return `请针对中国城市【${city || '该城市'}】的房源小区【${community || address}】（地址：${address || community}），检索真实最新的周边生活配套设施和租客生活评价。
 
 请按以下清晰的分类输出详细、客观真实的周边配套分析报告（使用规范的 Markdown 格式输出）：
 
@@ -32,7 +32,7 @@ export function amenitiesPrompt({ city, community, address }: AmenitiesPromptInp
 - 小区停车位配比是否紧张、老旧小区无电梯/电梯维护状况、物业管理口碑
 - 真实租客常吐槽的居住痛点
 
-请保持客观真实、详细具体，结合真实检索信息回答。`;
+请只基于真实检索到的信息回答，不确定的项如实说明未查到。`;
 }
 
 export interface LiveListingsPromptInput {
@@ -48,9 +48,10 @@ export interface LiveListingsPromptInput {
 export function liveListingsPrompt(input: LiveListingsPromptInput): string {
   const { city, district, subwayStation, budgetMin, budgetMax, roomType, keywords } = input;
   const locationSpec = [city, district, subwayStation].filter(Boolean).join(' ');
-  return `你是一个专业的全网房源抓取与检索引擎。请利用 Google Search 实时检索中国【${city}】地区（位置/地铁站：${locationSpec}，月预算：${budgetMin}~${budgetMax}元，户型：${roomType}，偏好：${keywords}）当前最新的真实租房挂牌信息（覆盖58同城、安居客、贝壳找房、链家、自如、豆瓣租房小组、闲鱼转租等渠道）。
+  return `你是一个专业的全网房源抓取与检索引擎。请实时检索中国【${city}】地区（位置/地铁站：${locationSpec}，月预算：${budgetMin}~${budgetMax}元，户型：${roomType}，偏好：${keywords}）当前最新的真实租房挂牌信息（覆盖58同城、安居客、贝壳找房、链家、自如、豆瓣租房小组、闲鱼转租等渠道）。
 
 请检索并提取 4 至 6 套当前区域符合预算的真实/近期房源清单。
+（下例仅示意键名、枚举与数字类型，数值请填真实检索结果，不得照抄。）
 
 必须在回复末尾提供一个标准的 JSON 代码块，严格遵循如下格式（不要修改键名）：
 \`\`\`json

@@ -151,7 +151,7 @@ listingsRouter.post('/api/collect-58', async (req: Request, res: Response) => {
 /** 全网房源检索（大模型联网）：解析不出结果就诚实失败 */
 listingsRouter.post('/api/fetch-live-listings', async (req: Request, res: Response) => {
   const {
-    city = '杭州',
+    city = DEFAULT_CITY,
     district = '',
     subwayStation = '',
     budgetMin = 1500,
@@ -184,5 +184,6 @@ listingsRouter.post('/api/fetch-live-listings', async (req: Request, res: Respon
     listings: outcome.listings,
     sources: outcome.sources,
     searchQueries: outcome.searchQueries,
+    usage: outcome.usage || null,
   });
 });

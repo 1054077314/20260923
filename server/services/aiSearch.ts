@@ -1,9 +1,44 @@
 // 大模型联网检索服务：周边配套分析 + 全网房源检索。
 // 诚实契约：解析不出结果就返回失败，绝不生成兜底数据（历史遗留的假房源兜底已移除）。
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { GEMINI_MODEL, geminiApiKey } from '../config.js';
 import { amenitiesPrompt, liveListingsPrompt } from '../prompts.js';
+
+/** searchLiveListings 结构化输出 schema：与 prompts.ts 内键名/枚举/数字类型同源 */
+const liveListingsSchema = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      title: { type: Type.STRING },
+      community: { type: Type.STRING },
+      address: { type: Type.STRING },
+      rent: { type: Type.NUMBER },
+      areaSqMeters: { type: Type.NUMBER },
+      floor: { type: Type.STRING },
+      subwayStation: { type: Type.STRING },
+      walkToSubwayMin: { type: Type.NUMBER },
+      commuteMinutes: { type: Type.NUMBER },
+      landlordType: {
+        type: Type.STRING,
+        format: 'enum' as const,
+        enum: ['direct_landlord', 'intermediary', 'brand_apartment', 'sublessor'],
+      },
+      utilitiesType: {
+        type: Type.STRING,
+        format: 'enum' as const,
+        enum: ['residential', 'commercial'],
+      },
+      depositTerms: { type: Type.STRING },
+      pros: { type: Type.ARRAY, items: { type: Type.STRING } },
+      cons: { type: Type.ARRAY, items: { type: Type.STRING } },
+      sourcePlatform: { type: Type.STRING },
+      notes: { type: Type.STRING },
+    },
+    required: ['title', 'rent'],
+  },
+};
 
 let client: GoogleGenAI | null = null;
 
@@ -41,6 +76,7 @@ export type AmenitiesOutcome =
       content: string;
       sources: GroundingSource[];
       searchQueries: string[];
+      usage: unknown;
     }
   | { ok: false; error: string };
 
@@ -69,6 +105,7 @@ export async function searchAmenities(params: {
       content: response.text || '暂无检索结果，请核对小区名称。',
       sources: extractSources(groundingMetadata),
       searchQueries: groundingMetadata?.webSearchQueries || [],
+      usage: response.usageMetadata || null,
     };
   } catch (error: any) {
     console.error('Amenities Search Grounding Error:', error);
@@ -83,6 +120,7 @@ export type LiveListingsOutcome =
       listings: Record<string, any>[];
       sources: GroundingSource[];
       searchQueries: string[];
+      usage: unknown;
     }
   | { ok: false; error: string; sources?: GroundingSource[]; searchQueries?: string[] };
 
@@ -99,7 +137,11 @@ export async function searchLiveListings(params: {
     const response = await getClient().models.generateContent({
       model: GEMINI_MODEL,
       contents: liveListingsPrompt(params),
-      config: { tools: [{ googleSearch: {} }] },
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: 'application/json',
+        responseSchema: liveListingsSchema,
+      },
     });
 
     const responseText = response.text || '';
@@ -107,13 +149,19 @@ export async function searchLiveListings(params: {
     const sources = extractSources(groundingMetadata);
     const searchQueries: string[] = groundingMetadata?.webSearchQueries || [];
 
+    // 结构化输出直取已校验 JSON；保留 fence 正则仅作兼容回退
     let listings: Record<string, any>[] = [];
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (jsonMatch && jsonMatch[1]) {
-      try {
-        listings = JSON.parse(jsonMatch[1]);
-      } catch (parseErr) {
-        console.error('Failed to parse JSON from AI response:', parseErr);
+    try {
+      listings = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.error('Failed to parse JSON from AI response:', parseErr);
+      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonMatch?.[1]) {
+        try {
+          listings = JSON.parse(jsonMatch[1]);
+        } catch (fenceErr) {
+          console.error('Fallback fence-parse failed:', fenceErr);
+        }
       }
     }
 
@@ -145,6 +193,7 @@ export async function searchLiveListings(params: {
       listings,
       sources,
       searchQueries,
+      usage: response.usageMetadata || null,
     };
   } catch (error: any) {
     console.error('Live Listings Fetch Error:', error);
