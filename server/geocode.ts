@@ -28,7 +28,9 @@ export function readGeocache(): Record<string, GeocacheEntry> {
 
 export function writeGeocache(cache: Record<string, GeocacheEntry>) {
   try {
-    fs.writeFileSync(GEOCACHE_PATH, JSON.stringify(cache, null, 1), 'utf-8');
+    const tmp = `${GEOCACHE_PATH}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(cache, null, 1), 'utf-8');
+    fs.renameSync(tmp, GEOCACHE_PATH);
   } catch (e: any) {
     console.warn('geocache write failed:', e?.message || e);
   }

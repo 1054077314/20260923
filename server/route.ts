@@ -9,6 +9,8 @@ const ROUTE_CACHE_PATH = path.resolve(PROJECT_ROOT, 'data-route-cache.json');
 
 export type RouteCacheEntry = { minutes: number; distanceMeters: number; cachedAt: number; segments?: any[] };
 
+export const ROUTE_CACHE_TTL_MS = 24 * 3600 * 1000;
+
 // 批量通勤会按条数反复读缓存，9.7MB 文件逐条 JSON.parse 不可接受：
 // 内存驻留一份，按 mtime 失效（外部采集/导入改写文件后自动重载）
 let memoCache: Record<string, RouteCacheEntry> | null = null;
@@ -29,8 +31,19 @@ export function readRouteCache(): Record<string, RouteCacheEntry> {
 
 export function writeRouteCache(cache: Record<string, RouteCacheEntry>) {
   try {
-    fs.writeFileSync(ROUTE_CACHE_PATH, JSON.stringify(cache, null, 1), 'utf-8');
-    memoCache = cache;
+    // 写盘顺带清掉过期条目：readCache 里 TTL 已判死，留着只会把文件越撑越大
+    const now = Date.now();
+    const pruned: Record<string, RouteCacheEntry> = {};
+    for (const [k, v] of Object.entries(cache)) {
+      if (v && typeof v.cachedAt === 'number' && now - v.cachedAt < ROUTE_CACHE_TTL_MS) {
+        pruned[k] = v;
+      }
+    }
+    // 先写临时文件再 rename：13MB 文件写一半进程被杀不会留下半个 JSON
+    const tmp = `${ROUTE_CACHE_PATH}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(pruned, null, 1), 'utf-8');
+    fs.renameSync(tmp, ROUTE_CACHE_PATH);
+    memoCache = pruned;
     memoMtimeMs = fs.statSync(ROUTE_CACHE_PATH).mtimeMs;
   } catch (e: any) {
     console.warn('route cache write failed:', e?.message || e);

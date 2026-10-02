@@ -140,14 +140,27 @@ export async function geocodeMany(
   const result = new Map<string, CoordinateHit>();
   if (unique.length === 0 || !amapKey()) return result;
 
+  // 命中回写 geocache：与导入期/单地址解析共享同一份坐标出处，
+  // 避免通勤批量每跑一次就对同一批地址重复打高德
+  const geocache = readGeocache();
+  const resolvedAt = new Date().toISOString().slice(0, 10);
+  let cacheDirty = false;
+
   const queue = [...unique];
   const worker = async () => {
     while (queue.length > 0) {
       const q = queue.shift()!;
       const geo = await geocodeViaAmap(q, city);
-      if (geo) result.set(q, { ...geo, source: 'amap' });
+      if (geo) {
+        result.set(q, { ...geo, source: 'amap' });
+        if (!geocache[q]) {
+          geocache[q] = { ...geo, source: 'amap', resolvedAt };
+          cacheDirty = true;
+        }
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, unique.length) }, worker));
+  if (cacheDirty) writeGeocache(geocache);
   return result;
 }

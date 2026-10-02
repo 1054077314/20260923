@@ -10,6 +10,7 @@ import {
   parseAmapTransitSegments,
   readRouteCache,
   writeRouteCache,
+  ROUTE_CACHE_TTL_MS,
 } from '../route.js';
 import type { RouteCacheEntry } from '../route.js';
 
@@ -27,7 +28,7 @@ export interface RouteResultBase {
   reason?: string;
 }
 
-export const ROUTE_CACHE_TTL_MS = 24 * 3600 * 1000;
+export { ROUTE_CACHE_TTL_MS };
 
 /** 高德并发上限：免费 Key QPS 很紧，2 路并发 + 超限退避重试是实测可用档位 */
 export const DEFAULT_ROUTE_CONCURRENCY = 2;
@@ -53,7 +54,9 @@ export function isSupportedMode(mode: string): boolean {
 }
 
 export function routeCacheKey(from: LatLng, to: LatLng, mode: string): string {
-  return `${from.lng},${from.lat}|${to.lng},${to.lat}|${mode}`;
+  // 坐标取整到 ~1m：与通勤批量的去重键同一精度，避免同一位置因浮点尾差产生缓存碎片
+  const f = (n: number) => n.toFixed(5);
+  return `${f(from.lng)},${f(from.lat)}|${f(to.lng)},${f(to.lat)}|${mode}`;
 }
 
 function buildRouteUrl(mode: string, from: LatLng, to: LatLng, city: string, key: string): string {

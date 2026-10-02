@@ -41,7 +41,8 @@ function geocodeWorkplace(workplace: string, city: string): Promise<LatLng | nul
   const p = postJson('/api/geocode-address', { address: `${city} ${workplace}`, city })
     .then((g) => {
       const coord: LatLng | null = g?.available && g?.coordinates ? g.coordinates : null;
-      workplaceCache.set(key, coord);
+      // 只缓存命中：失败多为瞬时故障/后补 key，缓存 null 会让本会话永不再重试
+      if (coord) workplaceCache.set(key, coord);
       return coord;
     })
     .catch(() => null)

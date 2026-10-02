@@ -21,7 +21,10 @@ export function readSnapshot(): SnapshotListing[] {
 }
 
 export function writeSnapshot(listings: SnapshotListing[]): void {
-  fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(listings, null, 1), 'utf-8');
+  // 先写临时文件再 rename：写一半进程被杀不会留下半个快照
+  const tmp = `${SNAPSHOT_PATH}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(listings, null, 1), 'utf-8');
+  fs.renameSync(tmp, SNAPSHOT_PATH);
 }
 
 /**
