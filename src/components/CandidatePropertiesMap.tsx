@@ -153,7 +153,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
             border:2px solid ${isSelected ? '#6366f1' : '#ffffff'};
             background-color:${isSelected ? '#4f46e5' : '#0f172a'};color:#ffffff;cursor:pointer;
           ">
-            <span>¥${candidate.rent}</span>
+            <span>${candidate.rent > 0 ? `¥${candidate.rent}` : '租金待核'}</span>
             <span style="font-size:9px;opacity:0.85;padding:1px 4px;border-radius:4px;background-color:rgba(255,255,255,0.2)">${
               candidate.walkToSubwayMin != null ? candidate.walkToSubwayMin + 'm' : '—'
             }</span>
@@ -446,7 +446,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
                     }`}
                   >
                     <MapPin className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-indigo-400'}`} />
-                    <span>¥{candidate.rent}</span>
+                    <span>{candidate.rent > 0 ? `¥${candidate.rent}` : '租金待核'}</span>
                     <span className="text-[10px] font-normal opacity-80 pl-0.5">
                       {candidate.walkToSubwayMin != null ? `${candidate.walkToSubwayMin}m` : '—'}
                     </span>
@@ -492,7 +492,7 @@ export const CandidatePropertiesMap: React.FC<CandidatePropertiesMapProps> = ({
                 )}
                 <div>
                   <div className="text-sm font-bold font-mono-code text-rose-400">
-                    ¥{activeProperty.rent}
+                    {activeProperty.rent > 0 ? `¥${activeProperty.rent}` : '租金待核'}
                   </div>
                   <div className="text-[10px] text-slate-400 font-mono-code">/月</div>
                 </div>

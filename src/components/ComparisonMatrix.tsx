@@ -759,7 +759,7 @@ export const ComparisonMatrix: React.FC<ComparisonMatrixProps> = ({
                           isDark ? 'text-neutral-100' : 'text-neutral-950'
                         }`}
                       >
-                        ¥{candidate.rent}
+                        {candidate.rent > 0 ? `¥${candidate.rent}` : '租金待核'}
                       </span>
                       <span className="text-[10px] text-neutral-400 block">
                         含杂费约 ¥{monthlyTotal}/月

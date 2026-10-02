@@ -174,10 +174,12 @@ export async function searchLiveListings(params: {
       };
     }
 
+    // 房源与 grounding 来源没有逐条对应关系，sourceUrl 一律留空，
+    // 不轮转分配伪造出处；完整来源列表在响应顶层 sources 字段
     listings = listings.map((item, idx) => ({
       ...item,
       id: `live-${Date.now()}-${idx}`,
-      sourceUrl: sources[idx % Math.max(1, sources.length)]?.url || '',
+      sourceUrl: '',
     }));
 
     return {

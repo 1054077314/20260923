@@ -115,6 +115,10 @@ export function sortCandidates(
     if (sortBy === 'score') {
       result = (b.weightedScore || 0) - (a.weightedScore || 0);
     } else if (sortBy === 'rent') {
+      // 未知租金（0）一律沉底，升序降序都不参与比较
+      const aUnknown = a.rent <= 0;
+      const bUnknown = b.rent <= 0;
+      if (aUnknown !== bUnknown) return aUnknown ? 1 : -1;
       result = a.rent - b.rent;
     } else if (sortBy === 'commute') {
       // 真实路线耗时优先，手动录入的 commuteMinutes 仅作后备

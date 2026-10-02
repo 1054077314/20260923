@@ -138,7 +138,7 @@ export function exportPlanToMarkdown(plan: RentalPlan): string {
       md += `
 ### ${idx + 1}. ${c.title} 【综合得分：${c.weightedScore || 0} 分】
 - **小区/地址**：${c.community} (${c.address || '无详细地址'})
-- **月租金**：¥${c.rent} / 月 (杂费合计后综合月支出: ¥${monthlyTotal}/月)
+- **月租金**：${c.rent > 0 ? `¥${c.rent}` : '租金待核'} / 月 (杂费合计后综合月支出: ¥${monthlyTotal}/月)
 - **通勤表现**：近 ${c.subwayStation}，步行 ${c.walkToSubwayMin} 分钟，单程耗时约 ${c.commuteMinutes} 分钟
 - **房屋属性**：${c.areaSqMeters}㎡ ｜ ${c.floor} ｜ ${c.utilitiesType === 'residential' ? '民水民电' : c.utilitiesType === 'commercial' ? '商水商电' : '水电待核实'} ｜ ${c.depositTerms}
 - **优势亮点**：${c.pros.join('、') || '无'}

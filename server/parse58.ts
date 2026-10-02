@@ -66,29 +66,30 @@ export function parse58HtmlListings(
       if (altTitle) title = altTitle[1].trim();
     }
 
+    // 与快照解析同一条诚实契约：标题都解析不出的卡片不入库
+    if (!title) continue;
+
     if (link.startsWith('//')) {
       link = 'https:' + link;
     } else if (link.startsWith('/')) {
       link = `https://${cityCode}.58.com${link}`;
     }
 
-    // Rent
-    let rent = 0;
+    // Rent：解析不到留 null，不取预算中位数兜底
+    let rent: number | null = null;
     const moneyMatch =
       block.match(/<div[^>]*class=["'][^"']*money[^"']*["'][^>]*>[\s\S]*?<b[^>]*>(\d+)<\/b>/i) ||
       block.match(/class=["'][^"']*strongbox[^"']*["'][^>]*>(\d+)<\/b>/i) ||
       block.match(/(\d+)\s*(?:元|元\/月)/);
 
     if (moneyMatch) {
-      rent = parseInt(moneyMatch[1], 10);
-    }
-    if (!rent || isNaN(rent)) {
-      rent = Math.round((Number(budgetMin) + Number(budgetMax)) / 2) || 2400;
+      const parsed = parseInt(moneyMatch[1], 10);
+      if (!isNaN(parsed) && parsed > 0) rent = parsed;
     }
 
     // Room info & Area
     let roomStr = '';
-    let areaSqMeters = 25;
+    let areaSqMeters: number | null = null;
     const roomMatch = block.match(/<p[^>]*class=["'][^"']*room[^"']*["'][^>]*>([\s\S]*?)<\/p>/i);
     if (roomMatch) {
       roomStr = roomMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
@@ -124,14 +125,11 @@ export function parse58HtmlListings(
       const commMatch = title.match(/^([^\s\-\[\]【】]{2,8})/);
       if (commMatch) community = commMatch[1];
     }
-    if (!community) {
-      community = `${districtName || city}宜居社区`;
-    }
 
     const address = `${city} ${districtName} ${subDistrict} ${community}`.replace(/\s+/g, ' ').trim();
 
     // Floor
-    let floor = '中楼层/6层';
+    let floor: string | null = null;
     const floorMatch = block.match(/(\d+F\/\d+F|\d+\/\d+层|[高中低]楼层\/\d+层|[高中低]楼层)/i);
     if (floorMatch) {
       floor = floorMatch[1];
@@ -160,12 +158,11 @@ export function parse58HtmlListings(
       if (title.includes('阳台')) pros.push('独立阳台');
       if (title.includes('独卫')) pros.push('独门独卫');
       if (title.includes('民水')) pros.push('民用水电');
-      if (pros.length === 0) pros.push('采光充足', '交通便利');
     }
 
     // Subway Station & Walk Time
     let subwayStation = '';
-    let walkToSubwayMin = 8;
+    let walkToSubwayMin: number | null = null;
     const subwayMatch =
       block.match(/距(?:地铁)?(\d+号线)?([^\s\d]{2,10}站?)\s*(\d+)米/i) ||
       block.match(/(\d+号线[^\s]{2,8})/);
@@ -178,8 +175,8 @@ export function parse58HtmlListings(
       }
     }
 
-    // Landlord type
-    let landlordType = 'intermediary';
+    // Landlord type：无明确信号留 unknown，不默认中介
+    let landlordType = 'unknown';
     if (
       block.includes('个人') ||
       block.includes('房东') ||
@@ -196,6 +193,8 @@ export function parse58HtmlListings(
       block.includes('自如')
     ) {
       landlordType = 'brand_apartment';
+    } else if (block.includes('jjr') || block.includes('经纪') || block.includes('中介')) {
+      landlordType = 'intermediary';
     }
 
     // Coordinates resolution
@@ -220,26 +219,35 @@ export function parse58HtmlListings(
 
     const finalCoords = resolveListingCoordinates(city, districtName, community, itemCoords);
 
+    const depMatch = stripTags(block.slice(0, 3000)).match(
+      /押[一二三四五六七八九十\d]+\s*付[一二三四五六七八九十\d]+/
+    );
+
     listings.push({
       id: `58-${Date.now()}-${index}`,
-      title: title || `${community} ${roomStr || '品质好房'}`,
+      title,
       community,
       address,
       rent,
       areaSqMeters,
       floor,
-      subwayStation: subwayStation || `${districtName || city}地铁沿线`,
+      subwayStation: subwayStation || null,
       walkToSubwayMin,
-      commuteMinutes: walkToSubwayMin + 18,
+      commuteMinutes: null,
       landlordType,
-      utilitiesType: block.includes('商用') ? 'commercial' : 'residential',
-      depositTerms: '押一付一',
+      utilitiesType: block.includes('商用') || block.includes('商水')
+        ? 'commercial'
+        : block.includes('民水') || block.includes('民用')
+        ? 'residential'
+        : 'unknown',
+      depositTerms: depMatch ? depMatch[0].replace(/\s+/g, '') : null,
       pros,
-      cons: floor.includes('楼梯') ? ['老小区楼梯需步行'] : [],
+      cons: floor?.includes('楼梯') ? ['老小区楼梯需步行'] : [],
       sourcePlatform: '58同城',
-      notes: '58同城直连实时挂牌房源，信息已结构化解析',
+      notes: '58同城直连实时挂牌房源，页面字段已结构化解析（缺省字段保持为空）',
       sourceUrl: link || `https://${cityCode}.58.com/chuzu/`,
-      coordinates: finalCoords,
+      coordinates: finalCoords ?? null,
+      coordinateSource: itemCoords ? 'explicit' : finalCoords ? 'local_dict' : 'unknown',
     });
   }
 
@@ -330,7 +338,14 @@ export function parse58SnapshotHtml(html: string, sourceName: string, city: stri
       subwayStation: null,
       walkToSubwayMin: null,
       commuteMinutes: null,
-      landlordType: agent && agent !== '个人' ? 'intermediary' : agent === '个人' ? 'sublessor' : 'unknown',
+      landlordType:
+        agent && agent !== '个人'
+          ? 'intermediary'
+          : agent === '个人'
+          ? rentMode === '合租'
+            ? 'sublessor'
+            : 'direct_landlord'
+          : 'unknown',
       utilitiesType: null,
       depositTerms: depMatch ? depMatch[0].replace(/\s+/g, '') : null,
       pros: [],

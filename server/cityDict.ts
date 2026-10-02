@@ -70,13 +70,14 @@ export const CITY_TO_58_CODE: Record<string, string> = {
 /**
  * Deterministically resolve coordinate for 58 listings without random scattering.
  * Priority: explicit 58 page coordinates -> local community match -> local district match -> local city match
+ * 无命中返回 undefined —— 不编造坐标，地图链路按"无真实坐标"诚实回退。
  */
 export function resolveListingCoordinates(
   city: string,
   district: string,
   community: string,
   pageCoords?: { lat: number; lng: number }
-): { lat: number; lng: number } {
+): { lat: number; lng: number } | undefined {
   if (
     pageCoords &&
     typeof pageCoords.lat === 'number' &&
@@ -116,7 +117,7 @@ export function resolveListingCoordinates(
     }
   }
 
-  return { lat: 30.2741, lng: 120.1551 };
+  return undefined;
 }
 
 /** 两点球面近似距离（km），用于校验解析结果是否落在目标城市范围内 */
